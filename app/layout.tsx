@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { LucideHome, LucidePlusCircle, LucideLineChart, LucideBarChart2, LucideSun, LucideMoon, LucideLogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
-import { WalletProvider } from "@/context/WalletContext";
 
 function NavContent() {
   const { logout, user } = useAuth();
@@ -116,7 +115,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
         <AuthProvider>
-          <WalletProvider>
             <nav className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-800 md:w-64 md:h-screen md:fixed md:left-0 md:top-0 border-t md:border-r border-gray-200 dark:border-gray-700">
               <div className="flex md:flex-col h-full">
                 <NavContent />
@@ -124,7 +122,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
 
             <main className="md:ml-64 p-4">{children}</main>
-          </WalletProvider>
         </AuthProvider>
       </body>
     </html>
