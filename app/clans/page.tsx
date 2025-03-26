@@ -3,6 +3,8 @@
 import React from 'react';
 import { Plus, UserPlus, Users, Trophy, Calendar, TrendingUp, Medal } from 'lucide-react';
 import Link from "next/link";
+import ProtectedRoute from "../components/ProtectedRoute"
+
 
 const mockClans = [
   {
@@ -31,6 +33,7 @@ const features = [
 
 const Clans = () => {
   return (
+    <ProtectedRoute>
     <div className="space-y-8">
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-4">
@@ -78,6 +81,7 @@ const Clans = () => {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 };
 

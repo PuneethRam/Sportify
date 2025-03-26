@@ -3,6 +3,7 @@
 import React from 'react';
 import { Trophy, Calendar, Star, TrendingUp } from 'lucide-react';
 import clsx from 'clsx';
+import ProtectedRoute from "../components/ProtectedRoute"
 
 const mockProfile = {
   name: "Alex Chen",
@@ -21,6 +22,7 @@ const mockProfile = {
 
 const Profile = () => {
   return (
+    <ProtectedRoute>
     <div className="space-y-8">
       {/* Stats Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
@@ -107,6 +109,7 @@ const Profile = () => {
         </div>
       </div>
     </div>
+    </ProtectedRoute>  
   );
 };
 
