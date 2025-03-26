@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { saveUserToFirestore } from "@/lib/firestore";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -20,7 +19,6 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      await saveUserToFirestore();
       router.push("/dashboard");
     } catch (error) {
       console.log(error);
