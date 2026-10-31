@@ -1,19 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
-
-const ENSURE_TABLE = `
-  CREATE TABLE IF NOT EXISTS TrainingSessions (
-    session_id INT AUTO_INCREMENT PRIMARY KEY,
-    batch_id INT NOT NULL,
-    title VARCHAR(200) NOT NULL DEFAULT 'Training Session',
-    scheduled_at DATETIME NOT NULL,
-    duration_minutes INT NOT NULL DEFAULT 60,
-    notes TEXT,
-    created_by VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`;
+import { forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
 
 // GET /api/organisations/sessions?batchId=
 export async function GET(req: Request) {
@@ -21,10 +9,10 @@ export async function GET(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { searchParams } = new URL(req.url);
     const batchId = searchParams.get("batchId");
     if (!batchId) return NextResponse.json({ error: "batchId required" }, { status: 400 });
+    if (!(await isClanMember(uid, batchId)) && !(await isClanAdmin(uid, batchId))) return forbidden();
 
     const rows = await executeQuery(
       `SELECT * FROM TrainingSessions WHERE batch_id = ? ORDER BY scheduled_at ASC`,
@@ -42,9 +30,9 @@ export async function POST(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { batchId, title, scheduledAt, durationMinutes, notes } = await req.json();
     if (!batchId || !scheduledAt) return NextResponse.json({ error: "batchId and scheduledAt required" }, { status: 400 });
+    if (!(await isClanAdmin(uid, batchId))) return forbidden("Only coaches can schedule sessions");
 
     const result = await executeQuery(
       `INSERT INTO TrainingSessions (batch_id, title, scheduled_at, duration_minutes, notes, created_by)
@@ -67,6 +55,9 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get("sessionId");
     if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+    const [row] = await executeQuery(`SELECT batch_id FROM TrainingSessions WHERE session_id = ?`, [sessionId]) as { batch_id: number }[];
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!(await isClanAdmin(uid, row.batch_id))) return forbidden("Only coaches can cancel sessions");
 
     await executeQuery(`DELETE FROM TrainingSessions WHERE session_id = ?`, [sessionId]);
     return NextResponse.json({ success: true });

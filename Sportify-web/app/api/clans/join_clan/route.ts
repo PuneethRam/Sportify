@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { RowDataPacket } from 'mysql2';
 import { createConnection } from '@/lib/db'; // Import the createConnection function
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { STARTING_POINTS } from "@/lib/scoring";
 
 // POST: Join a clan
 export async function POST(req: Request) {
@@ -15,6 +16,18 @@ export async function POST(req: Request) {
 
     if (!clanId) {
       return NextResponse.json({ error: "Clan ID is required" }, { status: 400 });
+    }
+
+    // Academy batches are joined with an invite code (organisations/join_batch)
+    const [clan] = await connection.execute<RowDataPacket[]>(
+      "SELECT type FROM Clans WHERE clan_id = ?;",
+      [clanId]
+    );
+    if (!clan.length) {
+      return NextResponse.json({ error: "Clan not found" }, { status: 404 });
+    }
+    if (clan[0].type === "batch") {
+      return NextResponse.json({ error: "This is an academy batch — join it with an invite code" }, { status: 403 });
     }
 
     // Check if user is already a member
@@ -38,8 +51,8 @@ export async function POST(req: Request) {
       );
 
       await connection.execute(
-        `INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points,matchesplayed,matcheswon,matcheslost) VALUES (?, ?, 100,0,0,0)`,
-        [clanId, uid]
+        `INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points,matchesplayed,matcheswon,matcheslost) VALUES (?, ?, ?, 0, 0, 0)`,
+        [clanId, uid, STARTING_POINTS]
       );
 
       // Commit transaction

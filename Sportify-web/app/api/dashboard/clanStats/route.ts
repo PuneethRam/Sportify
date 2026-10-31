@@ -31,7 +31,7 @@ export async function GET(req: Request) {
       executeQuery(
         `SELECT COUNT(*) as matches_played,
            SUM(CASE WHEN winner_player = ? THEN 1 ELSE 0 END) as matches_won
-         FROM InternalsinglesMatches
+         FROM InternalSinglesMatches
          WHERE clan_id = ? AND (player_1 = ? OR player_2 = ?)`,
         [userId, clanId, userId, userId]
       ),
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
       executeQuery(
         `SELECT COUNT(*) as matches_played,
            SUM(CASE WHEN winner_player = ? THEN 1 ELSE 0 END) as matches_won
-         FROM InternalsinglesMatches
+         FROM InternalSinglesMatches
          WHERE clan_id = ? AND (player_1 = ? OR player_2 = ?) AND series_id IS NOT NULL`,
         [userId, clanId, userId, userId]
       ),

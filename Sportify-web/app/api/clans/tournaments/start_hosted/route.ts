@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, getManagedTournament } from "@/lib/authz";
 
 function roundRobinMatches(teamIds: number[], prefix: string) {
   const matches: { team1_id: number; team2_id: number; match_stage: string; pos: number }[] = [];
@@ -33,6 +34,12 @@ export async function POST(req: Request) {
     const { tournamentId } = await req.json();
     if (!tournamentId) {
       return NextResponse.json({ success: false, error: "Missing tournament ID" }, { status: 400 });
+    }
+
+    const tournament = await getManagedTournament(uid, tournamentId);
+    if (!tournament) {
+      await connection.rollback();
+      return forbidden("Only the tournament host or a clan admin can start this tournament");
     }
 
     // Fetch tournament

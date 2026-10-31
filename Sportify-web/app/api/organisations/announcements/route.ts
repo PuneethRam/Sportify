@@ -1,19 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
-
-const ENSURE_TABLE = `
-  CREATE TABLE IF NOT EXISTS BatchAnnouncements (
-    announcement_id INT AUTO_INCREMENT PRIMARY KEY,
-    batch_id INT NOT NULL,
-    author_id VARCHAR(255) NOT NULL,
-    author_name VARCHAR(255),
-    title VARCHAR(200) NOT NULL,
-    body TEXT NOT NULL,
-    pinned TINYINT(1) NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`;
+import { forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
 
 // GET /api/organisations/announcements?batchId=
 export async function GET(req: Request) {
@@ -21,10 +9,10 @@ export async function GET(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { searchParams } = new URL(req.url);
     const batchId = searchParams.get("batchId");
     if (!batchId) return NextResponse.json({ error: "batchId required" }, { status: 400 });
+    if (!(await isClanMember(uid, batchId)) && !(await isClanAdmin(uid, batchId))) return forbidden();
 
     const rows = await executeQuery(
       `SELECT * FROM BatchAnnouncements WHERE batch_id = ?
@@ -43,11 +31,11 @@ export async function POST(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { batchId, authorName, title, body, pinned } = await req.json();
     if (!batchId || !title || !body) {
       return NextResponse.json({ error: "batchId, title, body required" }, { status: 400 });
     }
+    if (!(await isClanAdmin(uid, batchId))) return forbidden("Only coaches can post announcements");
 
     const result = await executeQuery(
       `INSERT INTO BatchAnnouncements (batch_id, author_id, author_name, title, body, pinned)
@@ -69,6 +57,9 @@ export async function PATCH(req: Request) {
   try {
     const { announcementId, pinned } = await req.json();
     if (!announcementId) return NextResponse.json({ error: "announcementId required" }, { status: 400 });
+    const [row] = await executeQuery(`SELECT batch_id FROM BatchAnnouncements WHERE announcement_id = ?`, [announcementId]) as { batch_id: number }[];
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!(await isClanAdmin(uid, row.batch_id))) return forbidden("Only coaches can manage announcements");
 
     await executeQuery(
       `UPDATE BatchAnnouncements SET pinned = ? WHERE announcement_id = ?`,
@@ -89,6 +80,9 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const announcementId = searchParams.get("announcementId");
     if (!announcementId) return NextResponse.json({ error: "announcementId required" }, { status: 400 });
+    const [row] = await executeQuery(`SELECT batch_id FROM BatchAnnouncements WHERE announcement_id = ?`, [announcementId]) as { batch_id: number }[];
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!(await isClanAdmin(uid, row.batch_id))) return forbidden("Only coaches can manage announcements");
 
     await executeQuery(`DELETE FROM BatchAnnouncements WHERE announcement_id = ?`, [announcementId]);
     return NextResponse.json({ success: true });

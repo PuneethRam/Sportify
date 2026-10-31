@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 export async function DELETE(req: Request) {
   try {
@@ -16,6 +17,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: "Missing seriesId or clanId" }, { status: 400 });
     }
 
+    if (!(await isClanAdmin(uid, clanId))) return forbidden("Only clan admins can delete a series");
+
     // Remove match records tied to this series
     await executeQuery(
       `DELETE FROM InternalSinglesMatches WHERE series_id = ? AND clan_id = ?`,
@@ -26,6 +29,10 @@ export async function DELETE(req: Request) {
       [seriesId, clanId]
     );
 
+    await executeQuery(
+      `DELETE FROM MatchSubmissions WHERE series_id = ? AND clan_id = ? AND status <> 'confirmed'`,
+      [seriesId, clanId]
+    );
     const result = await executeQuery(
       `DELETE FROM InternalSeries WHERE series_id = ? AND clan_id = ?`,
       [seriesId, clanId]

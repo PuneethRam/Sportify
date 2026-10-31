@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ResultSetHeader } from "mysql2/promise";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isOrgOwner } from "@/lib/authz";
+import { STARTING_POINTS } from "@/lib/scoring";
 
 function generateInviteCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -26,14 +28,7 @@ export async function POST(req: Request) {
     }
 
     // Verify the user owns this organisation
-    const [orgRows] = await connection.execute(
-      "SELECT org_id FROM Organisations WHERE org_id = ? AND owner_user_id = ?",
-      [orgId, uid]
-    );
-
-    if (!Array.isArray(orgRows) || orgRows.length === 0) {
-      return NextResponse.json({ error: "Not authorised to create batches in this organisation" }, { status: 403 });
-    }
+    if (!(await isOrgOwner(uid, orgId))) return forbidden("Not authorised to create batches in this organisation");
 
     // Generate a unique invite code
     let inviteCode = generateInviteCode();
@@ -69,8 +64,8 @@ export async function POST(req: Request) {
 
       // Add to leaderboard
       await connection.execute(
-        "INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points) VALUES (?, ?, 0)",
-        [batchId, uid]
+        "INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points) VALUES (?, ?, ?)",
+        [batchId, uid, STARTING_POINTS]
       );
 
       await connection.commit();

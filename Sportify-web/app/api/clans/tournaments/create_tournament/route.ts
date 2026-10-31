@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 function roundRobinMatches(
   teamIds: number[],
@@ -59,6 +60,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
     }
 
+    if (!(await isClanAdmin(uid, clanId))) {
+      await connection.rollback();
+      return forbidden("Only clan admins can create tournaments");
+    }
+
     if (format === "knockout" && teamsData.length % 2 !== 0) {
       return NextResponse.json(
         { success: false, error: "Knockout format requires an even number of teams" },
@@ -68,9 +74,9 @@ export async function POST(req: Request) {
 
     // 1. Create tournament
     const [tournResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO Tournaments (clan_id, tournament_name, tournament_type, format, status, start_date, teams_per_group)
-       VALUES (?, ?, ?, ?, 'ongoing', ?, ?)`,
-      [clanId, tournament_name, tournament_type, format, start_date, teams_per_group ?? 2]
+      `INSERT INTO Tournaments (clan_id, tournament_name, tournament_type, format, status, start_date, teams_per_group, created_by)
+       VALUES (?, ?, ?, ?, 'ongoing', ?, ?, ?)`,
+      [clanId, tournament_name, tournament_type, format, start_date, teams_per_group ?? 2, uid]
     );
     const tournamentId = tournResult.insertId;
 

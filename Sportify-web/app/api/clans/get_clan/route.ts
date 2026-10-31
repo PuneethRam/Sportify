@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     }
 
     const rows = await executeQuery(
-      `SELECT clan_id, name, clan_rank, type, org_id FROM clans WHERE clan_id = ?;`,
+      `SELECT clan_id, name, clan_rank, type, org_id FROM Clans WHERE clan_id = ?;`,
       [id]
     );
 

@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       executeQuery(
         `SELECT COUNT(*) as total_played,
            SUM(CASE WHEN winner_player = ? THEN 1 ELSE 0 END) as total_won
-         FROM InternalsinglesMatches
+         FROM InternalSinglesMatches
          WHERE player_1 = ? OR player_2 = ?`,
         [userId, userId, userId]
       ),
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
       executeQuery(
         `SELECT match_date,
            CASE WHEN winner_player = ? THEN 1 ELSE 0 END as won
-         FROM InternalsinglesMatches
+         FROM InternalSinglesMatches
          WHERE (player_1 = ? OR player_2 = ?) AND winner_player IS NOT NULL
          ORDER BY match_date DESC LIMIT 300`,
         [userId, userId, userId]
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
         `SELECT
            CASE WHEN player_1 = ? THEN player_2 ELSE player_1 END as opponent_id,
            u.name, COUNT(*) as wins
-         FROM InternalsinglesMatches im
+         FROM InternalSinglesMatches im
          JOIN Users u ON CASE WHEN im.player_1 = ? THEN im.player_2 ELSE im.player_1 END = u.user_id
          WHERE (player_1 = ? OR player_2 = ?) AND winner_player = ?
          GROUP BY opponent_id, u.name
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
         `SELECT
            CASE WHEN player_1 = ? THEN player_2 ELSE player_1 END as opponent_id,
            u.name, COUNT(*) as losses
-         FROM InternalsinglesMatches im
+         FROM InternalSinglesMatches im
          JOIN Users u ON CASE WHEN im.player_1 = ? THEN im.player_2 ELSE im.player_1 END = u.user_id
          WHERE (player_1 = ? OR player_2 = ?) AND winner_player != ? AND winner_player IS NOT NULL
          GROUP BY opponent_id, u.name
@@ -106,7 +106,7 @@ export async function GET(req: Request) {
            CASE WHEN sm.winner_player = ? THEN 'win'
                 WHEN sm.winner_player IS NULL THEN 'draw'
                 ELSE 'loss' END AS result
-         FROM InternalsinglesMatches sm
+         FROM InternalSinglesMatches sm
          JOIN Users u ON u.user_id = CASE WHEN sm.player_1 = ? THEN sm.player_2 ELSE sm.player_1 END
          WHERE sm.player_1 = ? OR sm.player_2 = ?
          ORDER BY sm.match_date DESC LIMIT 15`,

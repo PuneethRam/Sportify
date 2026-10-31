@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanMember } from "@/lib/authz";
 
 export async function POST(req: Request) {
   try {
@@ -25,12 +26,14 @@ export async function POST(req: Request) {
 
     // Tournament open?
     const tourn = await executeQuery(
-      `SELECT max_participants, registration_mode FROM Tournaments WHERE tournament_id = ? AND status = 'open'`,
+      `SELECT clan_id, max_participants, registration_mode FROM Tournaments WHERE tournament_id = ? AND status = 'open'`,
       [tournamentId]
     ) as RowDataPacket[];
     if (!tourn.length) {
       return NextResponse.json({ success: false, error: "Tournament not found or not open for registration" }, { status: 404 });
     }
+
+    if (!(await isClanMember(uid, tourn[0].clan_id))) return forbidden("Join the clan to register for its tournaments");
 
     const { max_participants } = tourn[0];
     let teamIdToAssign: number | null = null;
@@ -118,6 +121,7 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("Error unregistering:", error);
     return NextResponse.json({ success: false, error: "Failed to unregister" }, { status: 500 });
   }
 }
