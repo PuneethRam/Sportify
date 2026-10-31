@@ -2,58 +2,9 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 
-const ENSURE_TABLES = `
-  CREATE TABLE IF NOT EXISTS GameSessions (
-    session_id INT AUTO_INCREMENT PRIMARY KEY,
-    host_user_id VARCHAR(255) NOT NULL,
-    host_name VARCHAR(255),
-    title VARCHAR(200) NOT NULL,
-    sport VARCHAR(100),
-    location TEXT NOT NULL,
-    scheduled_at DATETIME NOT NULL,
-    max_players INT NOT NULL DEFAULT 4,
-    description TEXT,
-    status ENUM('open','full','completed','cancelled') DEFAULT 'open',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`;
-const ENSURE_PLAYERS = `
-  CREATE TABLE IF NOT EXISTS GameSessionPlayers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id INT NOT NULL,
-    user_id VARCHAR(255) NOT NULL,
-    user_name VARCHAR(255),
-    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_player (session_id, user_id)
-  )
-`;
-const ENSURE_MESSAGES = `
-  CREATE TABLE IF NOT EXISTS GameSessionMessages (
-    message_id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id INT NOT NULL,
-    user_id VARCHAR(255) NOT NULL,
-    user_name VARCHAR(255),
-    message TEXT NOT NULL,
-    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`;
-
-async function ensureTables() {
-  await executeQuery(ENSURE_TABLES);
-  await executeQuery(ENSURE_PLAYERS);
-  await executeQuery(ENSURE_MESSAGES);
-  // Self-migrating: add skill_level if the table already existed without it
-  try {
-    await executeQuery(
-      `ALTER TABLE GameSessions ADD COLUMN skill_level ENUM('any','beginner','intermediate','advanced') NOT NULL DEFAULT 'any'`
-    );
-  } catch { /* column already exists — ignore */ }
-}
-
 // GET /api/game-sessions — list upcoming/open sessions with player count
 export async function GET() {
   try {
-    await ensureTables();
     const rows = await executeQuery(
       `SELECT
          gs.*,
@@ -76,7 +27,6 @@ export async function POST(req: Request) {
     const uid = await getUserFromRequest(req);
     if (!uid) return unauthorized();
 
-    await ensureTables();
     const { hostName, title, sport, location, scheduledAt, maxPlayers, description, skillLevel } = await req.json();
     if (!title || !location || !scheduledAt || !maxPlayers) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
