@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { getAuth } from "firebase/auth";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import {
-  Users, Trophy, Activity, TrendingUp, Medal, User, ArrowLeft, Crown,
+  Users, Trophy, Activity, TrendingUp, User, ArrowLeft,
   CalendarDays, Check, Minus, Clock, ChevronLeft, ChevronRight, Loader2,
   Pin, PinOff, Trash2, Plus, Megaphone, CalendarPlus, ChevronRight as ChevronRightIcon,
 } from "lucide-react";
@@ -24,13 +24,6 @@ function toDateStr(d: Date) { return d.toISOString().slice(0, 10); }
 function localDt(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) return <div className="w-8 h-8 rounded-xl bg-amber-400 flex items-center justify-center flex-shrink-0"><Crown className="w-4 h-4 text-white" /></div>;
-  if (rank === 2) return <div className="w-8 h-8 rounded-xl bg-slate-400 dark:bg-slate-500 flex items-center justify-center flex-shrink-0"><Medal className="w-4 h-4 text-white" /></div>;
-  if (rank === 3) return <div className="w-8 h-8 rounded-xl bg-amber-700 flex items-center justify-center flex-shrink-0"><Medal className="w-4 h-4 text-white" /></div>;
-  return <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/8 flex items-center justify-center flex-shrink-0"><span className="stat-num text-sm text-slate-500 dark:text-slate-400">{rank}</span></div>;
 }
 
 const STATUS_CFG: Record<AttendanceStatus, { icon: React.ReactNode; active: string; inactive: string; label: string }> = {
@@ -147,14 +140,6 @@ function CoachDashboardContent() {
   const totalMatches = students.reduce((sum, m) => sum + (m.matchesplayed || 0), 0);
   const totalWins = students.reduce((sum, m) => sum + (m.matcheswon || 0), 0);
   const avgWinRate = students.length > 0 ? Math.round(students.reduce((sum, m) => sum + (m.matchesplayed > 0 ? (m.matcheswon / m.matchesplayed) * 100 : 0), 0) / students.length) : 0;
-  const winRate = (m: Member) => m.matchesplayed > 0 ? Math.round((m.matcheswon / m.matchesplayed) * 100) : 0;
-  const rowTint = (i: number) => {
-    if (i === 0) return "bg-amber-50/60 dark:bg-amber-400/5 border-amber-200/60 dark:border-amber-400/15";
-    if (i === 1) return "bg-slate-50/80 dark:bg-white/3 border-slate-200/60 dark:border-white/6";
-    if (i === 2) return "bg-orange-50/60 dark:bg-orange-400/5 border-orange-200/60 dark:border-orange-400/15";
-    return "bg-transparent border-slate-100/80 dark:border-white/5";
-  };
-
   // Attendance helpers
   const setStatus = (userId: string, status: AttendanceStatus) => setRecords(prev => prev.map(r => r.userId === userId ? { ...r, status } : r));
   const saveAttendance = async () => {

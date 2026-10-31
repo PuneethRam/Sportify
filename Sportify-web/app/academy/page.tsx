@@ -114,7 +114,6 @@ function AcademyContent() {
     } finally { setJoining(false); }
   };
 
-  const totalBatches   = ownedOrgs.length;
   const isEmpty        = ownedOrgs.length === 0 && memberOrgs.length === 0 && batches.length === 0;
 
   return (
@@ -281,7 +280,7 @@ function AcademyContent() {
           </div>
           <div>
             <h2 className="font-bold text-slate-800 dark:text-white">Create Academy</h2>
-            <p className="text-xs text-slate-400 mt-0.5">You'll be the owner and can invite coaches</p>
+            <p className="text-xs text-slate-400 mt-0.5">You&apos;ll be the owner and can invite coaches</p>
           </div>
         </div>
         <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Academy Name</label>
@@ -315,7 +314,7 @@ function AcademyContent() {
           className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 font-mono tracking-widest text-lg mb-2"
         />
         {joinError && <p className="text-xs text-rose-400 mb-3">{joinError}</p>}
-        <p className="text-xs text-slate-400 mb-5">Ask your coach to share their batch's invite code from the Academy page.</p>
+        <p className="text-xs text-slate-400 mb-5">Ask your coach to share their batch&apos;s invite code from the Academy page.</p>
         <button onClick={handleJoin} disabled={joining || !inviteCode.trim()}
           className="w-full flex justify-center items-center gap-2 py-3 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold transition-colors disabled:opacity-50">
           {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}

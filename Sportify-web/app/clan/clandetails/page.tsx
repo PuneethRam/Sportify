@@ -392,7 +392,7 @@ function ClanDetailsContent() {
                 </div>
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-                Are you sure you want to leave <span className="font-bold text-slate-700 dark:text-white">{clan.name}</span>? You'll lose access to all clan data.
+                Are you sure you want to leave <span className="font-bold text-slate-700 dark:text-white">{clan.name}</span>? You&apos;ll lose access to all clan data.
               </p>
               <div className="flex gap-3">
                 <button onClick={() => setShowLeaveModal(false)} disabled={isLeaving}

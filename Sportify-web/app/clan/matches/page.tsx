@@ -5,6 +5,7 @@ import { Users2, User, Clock, Trophy, Loader2, Play, Shield } from "lucide-react
 import { useSearchParams, useRouter } from "next/navigation";
 import { getAuth } from "firebase/auth";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import PendingResults from "@/app/components/PendingResults";
 
 type MatchScore = { team1: number[]; team2: number[]; };
 type Match = {
@@ -185,6 +186,7 @@ function MatchesContent() {
   const [isLoading, setIsLoading]  = useState(true);
   const [error, setError]          = useState<string | null>(null);
   const [isAdmin, setIsAdmin]      = useState(false);
+  const [reloadKey, setReloadKey]  = useState(0);
 
   useEffect(() => {
     const auth = getAuth();
@@ -215,7 +217,7 @@ function MatchesContent() {
       finally { setIsLoading(false); }
     };
     load();
-  }, [clanId]);
+  }, [clanId, reloadKey]);
 
   const filtered = matches.filter(m => {
     const byStatus =
@@ -254,6 +256,8 @@ function MatchesContent() {
           ))}
         </div>
       </div>
+
+      {clanId && <PendingResults clanId={clanId} onResolved={() => setReloadKey(k => k + 1)} />}
 
       {/* Admin CTA */}
       {isAdmin && (
