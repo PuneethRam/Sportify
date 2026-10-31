@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web — lint, typecheck, API tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Sportify-web
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: sportify_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -ptest"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: test
+      MYSQL_DATABASE: sportify_test
+      MYSQL_SSL: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Sportify-web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      # Builds the schema from db/migrations, then runs the API + authz tests against it
+      - run: npm test
+      - run: npm run build
+        env:
+          # Public Firebase web config is only needed at runtime; placeholders let pages prerender
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:1:web:1"
+
+  mobile:
+    name: Mobile — analyze, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Sportify-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Errors fail the build; the existing lint backlog (infos/warnings) is reported but not fatal yet
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - run: flutter test
