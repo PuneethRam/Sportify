@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
+import '../../widgets/pending_results.dart';
 
 // ── Simple data class (file-private) ─────────────────────────────────────────
 
@@ -131,11 +132,11 @@ class _StartMatchScreenState extends State<StartMatchScreen> {
               'scoreDetails': {'score': _scoreCtrl.text.trim()},
             };
 
-      await ApiService.instance.post('/api/clans/update_match', body);
+      final res = await ApiService.instance.post('/api/clans/update_match', body);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Match recorded successfully!')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          matchSubmitMessage(res, confirmed: 'Match recorded successfully!'))));
         context.pop();
       }
     } catch (e) {

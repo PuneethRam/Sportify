@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../../models/match_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
+import '../../widgets/pending_results.dart';
 
 class MatchesTab extends StatefulWidget {
   final String clanId;
@@ -18,6 +19,8 @@ class MatchesTab extends StatefulWidget {
 class _MatchesTabState extends State<MatchesTab>
     with AutomaticKeepAliveClientMixin {
   List<ClanMatch> _matches = [];
+  List<Map<String, dynamic>> _pending = [];
+  String? _resolvingId;
   bool _loading = true;
   String _statusFilter = 'all';
   String _typeFilter   = 'all';
@@ -32,6 +35,7 @@ class _MatchesTabState extends State<MatchesTab>
   }
 
   Future<void> _load() async {
+    _loadPending();
     try {
       final data = await ApiService.instance.get(
         '/api/clans/get_matches',
@@ -47,6 +51,62 @@ class _MatchesTabState extends State<MatchesTab>
       });
     } catch (_) {
       setState(() => _loading = false);
+    }
+  }
+
+  // Results awaiting confirmation — never cached, they change as players act
+  Future<void> _loadPending() async {
+    try {
+      final data = await ApiService.instance.get(
+        '/api/clans/matches/pending',
+        query: {'clanId': widget.clanId},
+        cached: false,
+      );
+      final list = (data['data'] as List? ?? []).cast<Map<String, dynamic>>();
+      if (mounted) setState(() => _pending = list);
+    } catch (_) {}
+  }
+
+  Future<void> _resolve(Map<String, dynamic> item, String action) async {
+    if (action == 'reject') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Dispute result?'),
+          content: const Text('The result will not count until a clan admin resolves it.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Dispute')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+
+    setState(() => _resolvingId = item['submissionId']?.toString());
+    try {
+      await ApiService.instance.post('/api/clans/matches/confirm', {
+        'submissionId': item['submissionId'],
+        'action': action,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(action == 'confirm' ? 'Result confirmed' : 'Result disputed')));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          e.statusCode == 409 ? 'This result was already resolved' : e.message)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingId = null);
+        _load();
+      }
     }
   }
 
@@ -72,7 +132,7 @@ class _MatchesTabState extends State<MatchesTab>
         onType:   (v) => setState(() => _typeFilter   = v),
       ),
       Expanded(
-        child: _filtered.isEmpty
+        child: _filtered.isEmpty && _pending.isEmpty
             ? EmptyView(
                 message: 'No matches yet',
                 icon: Icons.sports_tennis_outlined,
@@ -83,29 +143,47 @@ class _MatchesTabState extends State<MatchesTab>
                       )
                     : null,
               )
-            : ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _filtered.length + (widget.isAdmin ? 1 : 0),
-                itemBuilder: (_, i) {
-                  if (widget.isAdmin && i == 0) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ElevatedButton.icon(
-                        onPressed: _showNewMatch,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Start New Match'),
-                      ),
-                    );
-                  }
-                  final idx = widget.isAdmin ? i - 1 : i;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _MatchCard(match: _filtered[idx]),
-                  );
-                },
-              ),
+            : _buildList(),
       ),
     ]);
+  }
+
+  Widget _buildList() {
+    // Header rows (pending results, admin action) precede the match cards
+    final header = <Widget>[
+      if (_pending.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: PendingResultsSection(
+            items: _pending,
+            busyId: _resolvingId,
+            onAction: _resolve,
+          ),
+        ),
+      if (widget.isAdmin)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ElevatedButton.icon(
+            onPressed: _showNewMatch,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Start New Match'),
+          ),
+        ),
+      if (_filtered.isEmpty)
+        const EmptyView(message: 'No matches yet', icon: Icons.sports_tennis_outlined),
+    ];
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: header.length + _filtered.length,
+      itemBuilder: (_, i) {
+        if (i < header.length) return header[i];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _MatchCard(match: _filtered[i - header.length]),
+        );
+      },
+    );
   }
 
   Future<void> _showNewMatch() async {
@@ -454,13 +532,17 @@ class _NewMatchSheetState extends State<_NewMatchSheet> {
 
     setState(() => _saving = true);
     try {
-      await ApiService.instance.post('/api/clans/update_match', {
+      final res = await ApiService.instance.post('/api/clans/update_match', {
         'clanId': widget.clanId,
         'type': _type,
         'team1': t1names,
         'team2': t2names,
         'status': 'live',
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(matchSubmitMessage(res, confirmed: 'Match created'))));
+      }
       if (mounted) Navigator.pop(context);
       widget.onCreated();
     } catch (e) {

@@ -12,16 +12,10 @@ class AuthService {
   Stream<User?> get authStateChanges => _auth.authStateChanges();
   User? get currentUser => _auth.currentUser;
 
-  Future<void> refreshToken() async {
-    final token = await _auth.currentUser?.getIdToken(true);
-    ApiService.instance.setToken(token);
-  }
-
   Future<UserCredential> signInWithEmail(String email, String password) async {
     final cred = await _auth.signInWithEmailAndPassword(
       email: email, password: password,
     );
-    await refreshToken();
     await _ensureUserRecord();
     return cred;
   }
@@ -32,7 +26,6 @@ class AuthService {
       email: email, password: password,
     );
     await cred.user?.updateDisplayName(name);
-    await refreshToken();
     await _ensureUserRecord(name: name);
     return cred;
   }
@@ -46,7 +39,6 @@ class AuthService {
       idToken: googleAuth.idToken,
     );
     final cred = await _auth.signInWithCredential(credential);
-    await refreshToken();
     await _ensureUserRecord(name: googleUser.displayName);
     return cred;
   }
@@ -54,7 +46,6 @@ class AuthService {
   Future<void> signOut() async {
     await _auth.signOut();
     await _google.signOut();
-    ApiService.instance.setToken(null);
   }
 
   Future<void> sendPasswordReset(String email) =>

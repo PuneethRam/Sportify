@@ -85,7 +85,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   int? _activeGroupId;
   int  _advancingCount = 2;
 
-  bool _starting       = false;
   bool _completing     = false;
   bool _generatingKO   = false;
   bool _advancingToKO  = false;
@@ -300,23 +299,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
   // ── Admin actions ──────────────────────────────────────────────────────────
 
-  Future<void> _startTournament() async {
-    setState(() => _starting = true);
-    try {
-      final endpoint = _format == 'round_robin'
-          ? '/api/clans/tournaments/start_round_robin'
-          : '/api/clans/tournaments/start_knockout';
-      await ApiService.instance.post(endpoint, {
-        'clanId': widget.clanId,
-        'tournamentId': widget.tournamentId,
-      });
-      await _load();
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
+  // There is no "start" action here: clan tournaments are created 'ongoing'
+  // with their first-round / round-robin / group matches already generated,
+  // and hosted ('open') tournaments are started from the clan screen via
+  // start_hosted. Phase transitions are _generateKnockout (group_knockout)
+  // and _advanceToKnockout (round_robin).
 
   Future<void> _completeTournament() async {
     setState(() => _completing = true);
@@ -475,20 +462,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
           if (startDate != null) _chip(_formatDate(startDate), kColorMuted),
           _chip('${_teams.length} teams', kColorMuted),
         ]),
-        if (widget.isAdmin && status == 'upcoming') ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _starting ? null : _startTournament,
-              icon: _starting
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                  : const Icon(Icons.play_arrow_rounded, size: 18),
-              label: Text(_starting ? 'Starting…' : 'Start Tournament'),
-              style: ElevatedButton.styleFrom(backgroundColor: kColorEmerald),
-            ),
-          ),
-        ],
         if (widget.isAdmin && _isOngoing &&
             ((_format == 'knockout' && _allMatchesPlayed) ||
              (_format == 'group_knockout' && _allKnockoutMatchesDone) ||
@@ -720,14 +693,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   Widget _buildMatchesTab(Set<int> locked) {
     final roundsMap = _buildRoundsMap(_matches);
     if (roundsMap.isEmpty) {
-      return EmptyView(
+      return const EmptyView(
         message: 'No matches yet',
         icon: Icons.sports_rounded,
-        action: widget.isAdmin && _status == 'upcoming' && _teams.length >= 2
-            ? ElevatedButton(
-                onPressed: _starting ? null : _startTournament,
-                child: const Text('Start Tournament'))
-            : null,
       );
     }
     final sortedRounds = roundsMap.keys.toList()..sort();
@@ -1168,21 +1136,16 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 : 'Complete all group matches first, then generate the knockout bracket.')
             : 'Knockout bracket not generated yet',
         icon: Icons.account_tree_outlined,
-        action: widget.isAdmin && _isOngoing
-            ? (_format == 'knockout'
-                ? ElevatedButton(
-                    onPressed: _starting ? null : _startTournament,
-                    child: const Text('Start Tournament'))
-                : (_format == 'group_knockout' && _groupMatchesDone
-                    ? ElevatedButton.icon(
-                        onPressed: _generatingKO ? null : _generateKnockout,
-                        icon: _generatingKO
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                            : const Icon(Icons.account_tree_rounded, size: 18),
-                        label: Text(_generatingKO ? 'Generating…' : 'Generate Knockout Bracket'),
-                        style: ElevatedButton.styleFrom(backgroundColor: kColorPrimary),
-                      )
-                    : null))
+        action: widget.isAdmin && _isOngoing &&
+                _format == 'group_knockout' && _groupMatchesDone
+            ? ElevatedButton.icon(
+                onPressed: _generatingKO ? null : _generateKnockout,
+                icon: _generatingKO
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
+                    : const Icon(Icons.account_tree_rounded, size: 18),
+                label: Text(_generatingKO ? 'Generating…' : 'Generate Knockout Bracket'),
+                style: ElevatedButton.styleFrom(backgroundColor: kColorPrimary),
+              )
             : null,
       );
     }

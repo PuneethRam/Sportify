@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
+import '../../widgets/pending_results.dart';
 
 class SeriesDetailScreen extends StatefulWidget {
   final String clanId;
@@ -891,7 +892,7 @@ class _PlayTabState extends State<_PlayTab> {
         };
       }
 
-      await ApiService.instance.post('/api/clans/update_match', payload);
+      final res = await ApiService.instance.post('/api/clans/update_match', payload);
       _scoreCtrl.clear();
       setState(() {
         _selT1 = widget.seriesType == 'doubles' ? ['', ''] : [''];
@@ -901,7 +902,8 @@ class _PlayTabState extends State<_PlayTab> {
       widget.onMatchRecorded();
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Match recorded!')));
+            .showSnackBar(SnackBar(content: Text(
+                matchSubmitMessage(res, confirmed: 'Match recorded!'))));
       }
     } catch (e) {
       setState(() => _submitting = false);
