@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 
 interface ClanMember {
   user_id: string;
@@ -201,6 +202,7 @@ const submitMatch = async () => {
     const data = await response.json();
     
     if (data.success) {
+      track("match_submitted", { match_type: payload.matchType, status: data.status, series: true });
       // Player-submitted results stay pending until the other side confirms
       if (data.status === "pending") alert("Result submitted — it will count once the other side confirms it.");
 

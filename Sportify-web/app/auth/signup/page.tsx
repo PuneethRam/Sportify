@@ -6,6 +6,8 @@ import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import { useRouter } from "next/navigation";
 import { Loader2, ChevronRight, CheckCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
+import { nextPath, withNext } from "@/lib/nextPath";
+import { track } from "@/lib/track";
 
 export default function SignupPage() {
   const { signup, signInWithGoogle } = useAuth();
@@ -35,7 +37,8 @@ export default function SignupPage() {
         }),
       });
 
-      router.push("/dashboard");
+      track("signup_completed", { method: "email" });
+      router.push(nextPath());
     } catch (error) {
       console.log(error);
       setError((error as Error).message);
@@ -63,7 +66,8 @@ export default function SignupPage() {
         }),
       });
 
-      router.push("/dashboard");
+      track("signup_completed", { method: "google" });
+      router.push(nextPath());
     } catch (error) {
       console.log(error);
       setError((error as Error).message);
@@ -192,7 +196,7 @@ export default function SignupPage() {
           <p className="text-gray-600 dark:text-gray-400">
             Already have an account?{" "}
             <a 
-              href="/auth/login" 
+              href={withNext("/auth/login")} 
               className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
             >
               Sign in

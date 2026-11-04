@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
 import { auth } from "@/lib/firebase";
+import { identify, resetAnalytics } from "@/lib/track";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -30,6 +31,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      if (currentUser) identify(currentUser.uid);
+      else resetAnalytics();
     });
     return () => unsubscribe();
   }, []);

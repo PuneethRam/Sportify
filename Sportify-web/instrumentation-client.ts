@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { initAnalytics } from "@/lib/track";
 
 // Browser error monitoring. Inactive unless NEXT_PUBLIC_SENTRY_DSN is set at build time.
 if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
@@ -8,5 +9,8 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     tracesSampleRate: 0.1,
   });
 }
+
+// Product analytics (PostHog). Inactive unless NEXT_PUBLIC_POSTHOG_KEY is set at build time.
+initAnalytics();
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

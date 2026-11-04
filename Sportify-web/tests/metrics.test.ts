@@ -1,6 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeQuery } from "@/lib/db";
-import { computeMetrics, loadActivity, parsePlayers } from "@/lib/metrics";
+import { computeMetrics, loadActivity, loadMetrics, parsePlayers } from "@/lib/metrics";
 import { call, createClan, createUser, uniq } from "./helpers";
 
 import * as metrics from "@/app/api/admin/metrics/route";
@@ -105,5 +107,14 @@ describe("loadActivity / admin endpoint", () => {
     expect(res.json.weeks).toHaveLength(4);
     expect((res.json.weeks as { wac: number }[])[3].wac).toBeGreaterThan(0);
     expect((await call(metrics.GET, { uid: user, method: "GET" })).status).toBe(403);
+  });
+
+  it("db/queries/wac.sql agrees with lib/metrics.ts", async () => {
+    const sql = fs.readFileSync(path.join(__dirname, "..", "db", "queries", "wac.sql"), "utf8");
+    const rows = await executeQuery(sql) as { iso_week: string; wac: number }[];
+    const m = await loadMetrics(12);
+    const fromSql = Object.fromEntries(rows.map(r => [r.iso_week, Number(r.wac)]));
+    for (const w of m.weeks) expect(fromSql[w.week] ?? 0, w.week).toBe(w.wac);
+    expect(m.weeks.at(-1)!.wac).toBeGreaterThan(0);
   });
 });

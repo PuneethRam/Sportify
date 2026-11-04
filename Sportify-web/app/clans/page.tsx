@@ -9,6 +9,7 @@ import Link from "next/link";
 import ProtectedRoute from "../components/ProtectedRoute";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 
 type Clan = { clan_id: string; name: string; clan_rank: number };
 
@@ -69,10 +70,11 @@ const Clans = () => {
     if (!clanName.trim()) return; setCreating(true);
     const user = auth.currentUser; if (!user) return;
     try {
-      await fetchWithAuth("/api/clans/create_clan", {
+      const res = await fetchWithAuth("/api/clans/create_clan", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: clanName }),
       });
+      if (res.ok) track("clan_created");
       await fetchUserClans(); setClanName(""); setShowCreateClan(false);
     } finally { setCreating(false); }
   };
@@ -80,10 +82,11 @@ const Clans = () => {
   const handleJoinClan = async (clanId: string) => {
     const user = auth.currentUser; if (!user) return; setJoining(clanId);
     try {
-      await fetchWithAuth("/api/clans/join_clan", {
+      const res = await fetchWithAuth("/api/clans/join_clan", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clanId }),
       });
+      if (res.ok) track("clan_joined", { via: "browse" });
       await fetchUserClans(); setShowJoin(false);
     } finally { setJoining(null); }
   };
