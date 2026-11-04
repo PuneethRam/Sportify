@@ -9,6 +9,8 @@ const _categories = [
   ('sessions', 'Game sessions', 'When someone joins your game, or a game you joined changes'),
   ('announcements', 'Announcements', 'When your coach or academy posts'),
   ('invites', 'Invites accepted', 'When someone joins using your invite link'),
+  ('streaks', 'Streak reminders', 'Saturday nudge when your weekly streak is at risk'),
+  ('seasons', 'Seasons and rankings', 'Season results, badges and when someone passes you'),
 ];
 
 class NotificationSettingsScreen extends StatefulWidget {
