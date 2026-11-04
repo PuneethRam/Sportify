@@ -6,7 +6,8 @@ const dbConfig = {
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DATABASE,
   port:     Number(process.env.MYSQL_PORT),
-  ssl:      { rejectUnauthorized: false }, // Azure MySQL — cert verified at the network level
+  // Azure MySQL — cert verified at the network level. MYSQL_SSL=false for local / CI databases.
+  ssl:      process.env.MYSQL_SSL === "false" ? undefined : { rejectUnauthorized: false },
 };
 
 // ── Connection pool ─────────────────────────────────────────────────────────

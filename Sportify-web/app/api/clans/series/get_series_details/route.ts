@@ -72,7 +72,7 @@ export async function GET(req: Request) {
       const matchRows = await executeQuery(
         `SELECT match_id, clan_id, series_id, player_1, player_2,
                 winner_player, score_details, match_date
-         FROM InternalsinglesMatches WHERE clan_id = ? AND series_id = ?`,
+         FROM InternalSinglesMatches WHERE clan_id = ? AND series_id = ?`,
         [clanId, seriesId]
       ) as SinglesMatchRow[];
 

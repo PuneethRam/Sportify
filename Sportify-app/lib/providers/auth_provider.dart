@@ -15,15 +15,13 @@ class AuthProvider extends ChangeNotifier {
       _user?.displayName ?? _user?.email?.split('@').first ?? 'Player';
 
   AuthProvider() {
-    AuthService.instance.authStateChanges.listen((user) async {
+    AuthService.instance.authStateChanges.listen((user) {
       _user = user;
+      // ApiService fetches the ID token per request and clears its cache
+      // when the uid changes, so no token plumbing is needed here.
       if (user != null) {
-        final token = await user.getIdToken();
-        ApiService.instance.setToken(token);
         // Preload common data in the background so pages feel instant
         _preloadCommonData();
-      } else {
-        ApiService.instance.setToken(null);
       }
       _loading = false;
       notifyListeners();
@@ -40,8 +38,5 @@ class AuthProvider extends ChangeNotifier {
     api.get('/api/organisations/coach-dashboard').catchError((_) {});
   }
 
-  Future<void> refresh() async {
-    await AuthService.instance.refreshToken();
-    notifyListeners();
-  }
+  Future<void> signOut() => AuthService.instance.signOut();
 }

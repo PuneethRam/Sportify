@@ -5,7 +5,15 @@ import { getUserFromRequest, unauthorized } from "@/lib/auth";
 // GET /api/game-sessions/[id]/messages?since=<message_id>
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const uid = await getUserFromRequest(req);
+    if (!uid) return unauthorized();
     const { id } = await params;
+    // Only participants can read the chat
+    const [membership] = await executeQuery(
+      `SELECT id FROM GameSessionPlayers WHERE session_id = ? AND user_id = ?`,
+      [id, uid]
+    ) as { id: number }[];
+    if (!membership) return NextResponse.json({ error: "Not a participant" }, { status: 403 });
     const { searchParams } = new URL(req.url);
     const since = searchParams.get("since") ?? "0";
 

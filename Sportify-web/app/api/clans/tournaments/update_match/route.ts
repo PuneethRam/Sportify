@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, getManagedTournament } from "@/lib/authz";
+import { applyResult } from "@/lib/scoring";
 
 function getStageName(matchCount: number, roundNumber: number, position: number): string {
   if (matchCount === 1) return "Final";
@@ -10,39 +12,43 @@ function getStageName(matchCount: number, roundNumber: number, position: number)
   return `Round ${roundNumber} - Match ${position + 1}`;
 }
 
-function calcPoints(scoreDetails: string | null | undefined): number {
-  if (!scoreDetails) return 5;
-  // score_details arrives as JSON: {"score":"21-10, 21-15","games":[...]}
-  let scoreStr = String(scoreDetails);
-  try {
-    const parsed = JSON.parse(scoreStr);
-    if (parsed?.score) scoreStr = parsed.score;
-  } catch { /* plain string fallback */ }
-
-  // Net signed diff across all games — loser's wins reduce the margin
-  // "21-10, 15-21, 21-18" → (21-10) + (15-21) + (21-18) = 11 - 6 + 3 = 8
-  const games = scoreStr.split(',');
-  let netDiff = 0, gameCount = 0;
-  for (const g of games) {
-    const m = /(\d+)-(\d+)/.exec(g.trim());
-    if (m) { netDiff += parseInt(m[1]) - parseInt(m[2]); gameCount++; }
-  }
-  if (gameCount === 0) return 5;
-  return 5 + (Math.abs(netDiff) / 10) * 2;
-}
-
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
 
+  const { tournamentId, matchId, winner_team_id, score_details, team1_players, team2_players } = await req.json();
+
+  if (!tournamentId || !matchId) {
+    return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+  }
+
+  // Only the tournament host or a clan admin records tournament results
+  const tournament = await getManagedTournament(uid, tournamentId);
+  if (!tournament) return forbidden("Only the tournament host or a clan admin can record results");
+
   const connection = await createConnection();
+
   try {
     await connection.beginTransaction();
 
-    const { tournamentId, matchId, winner_team_id, score_details, team1_players, team2_players } = await req.json();
-
-    if (!tournamentId || !matchId) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    const [existing] = await connection.execute<RowDataPacket[]>(
+      `SELECT team1_id, team2_id, winner_team_id FROM TournamentMatches WHERE match_id = ? AND tournament_id = ? FOR UPDATE`,
+      [matchId, tournamentId]
+    );
+    if (!existing.length) {
+      await connection.rollback();
+      return NextResponse.json({ success: false, error: "Match not found" }, { status: 404 });
+    }
+    // A recorded result has already moved the leaderboard and the bracket;
+    // recording it again would count it twice.
+    if (existing[0].winner_team_id !== null) {
+      await connection.rollback();
+      return NextResponse.json({ success: false, error: "This match already has a result" }, { status: 409 });
+    }
+    const team1Id = existing[0].team1_id;
+    if (winner_team_id && winner_team_id !== team1Id && winner_team_id !== existing[0].team2_id) {
+      await connection.rollback();
+      return NextResponse.json({ success: false, error: "Winner must be one of the two teams" }, { status: 400 });
     }
 
     // Serialize player selections if provided
@@ -59,55 +65,20 @@ export async function POST(req: Request) {
       [winner_team_id ?? null, score_details ?? null, t1Players, t2Players, matchId, tournamentId]
     );
 
-    // Fetch tournament metadata
-    const [tournRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT clan_id, format, tournament_type FROM Tournaments WHERE tournament_id = ?`,
-      [tournamentId]
-    );
-    const format: string          = tournRows[0]?.format ?? "";
-    const clanId: number          = tournRows[0]?.clan_id;
-    const tournType: string       = tournRows[0]?.tournament_type ?? "singles"; // "singles" | "doubles"
-    const ptsCol: string          = tournType === "doubles" ? "doubles_points" : "singles_points";
+    const format: string = tournament.format ?? "";
+    const clanId: number = tournament.clan_id;
 
     // ── Leaderboard update (fires whenever a winner is declared and players are known) ──
-    if (winner_team_id && Array.isArray(team1_players) && Array.isArray(team2_players) && clanId) {
-      const [mInfo] = await connection.execute<RowDataPacket[]>(
-        `SELECT team1_id FROM TournamentMatches WHERE match_id = ?`,
-        [matchId]
-      );
-      const team1Id = mInfo[0]?.team1_id;
-      const isTeam1Winner = winner_team_id === team1Id;
+    if (winner_team_id && Array.isArray(team1_players) && Array.isArray(team2_players)) {
       // Frontend sends plain string user-id arrays e.g. ["uid1", "uid2"]
-      const winningPlayers: string[] = isTeam1Winner ? team1_players : team2_players;
-      const losingPlayers:  string[] = isTeam1Winner ? team2_players : team1_players;
-      const pts = calcPoints(score_details);
-
-      for (const userId of winningPlayers) {
-        if (!userId) continue;
-        await connection.execute(
-          `UPDATE ClanLeaderboard
-           SET clan_points   = clan_points + ?,
-               ${ptsCol}     = ${ptsCol} + ?,
-               matchesplayed = matchesplayed + 1,
-               matcheswon    = matcheswon + 1,
-               last_updated  = CURRENT_TIMESTAMP
-           WHERE clan_id = ? AND user_id = ?`,
-          [pts, pts, clanId, userId]
-        );
-      }
-      for (const userId of losingPlayers) {
-        if (!userId) continue;
-        await connection.execute(
-          `UPDATE ClanLeaderboard
-           SET clan_points   = GREATEST(clan_points - ?, 0),
-               ${ptsCol}     = GREATEST(${ptsCol} - ?, 0),
-               matchesplayed = matchesplayed + 1,
-               matcheslost   = matcheslost + 1,
-               last_updated  = CURRENT_TIMESTAMP
-           WHERE clan_id = ? AND user_id = ?`,
-          [pts, pts, clanId, userId]
-        );
-      }
+      await applyResult(connection, {
+        clanId,
+        format: tournament.tournament_type === "doubles" ? "doubles" : "singles",
+        team1: team1_players,
+        team2: team2_players,
+        score: score_details ?? "",
+        winner: winner_team_id === team1Id ? "team1" : "team2",
+      });
     }
 
     // Advance bracket for knockout and group_knockout knockout phase

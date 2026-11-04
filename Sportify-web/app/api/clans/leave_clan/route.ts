@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       );
 
       await connection.execute(
-        "DELETE FROM clanleaderboard WHERE user_id = ? AND clan_id = ?;",
+        "DELETE FROM ClanLeaderboard WHERE user_id = ? AND clan_id = ?;",
         [uid, clanId]
       );
 

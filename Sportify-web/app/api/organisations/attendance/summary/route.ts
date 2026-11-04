@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 // GET /api/organisations/attendance/summary?batchId=
 // Returns per-student attendance stats: total sessions, present count, rate
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
     }
+    if (!(await isClanAdmin(uid, batchId))) return forbidden();
 
     // Total unique sessions for this batch
     const [sessionRow] = await executeQuery(

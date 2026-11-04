@@ -1,21 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
-
-const ENSURE_TABLE = `
-  CREATE TABLE IF NOT EXISTS Attendance (
-    attendance_id INT AUTO_INCREMENT PRIMARY KEY,
-    batch_id INT NOT NULL,
-    session_date DATE NOT NULL,
-    session_name VARCHAR(100),
-    user_id VARCHAR(255) NOT NULL,
-    status ENUM('present', 'absent', 'late') NOT NULL DEFAULT 'absent',
-    marked_by VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_attendance (batch_id, session_date, user_id)
-  )
-`;
+import { areClanMembers, forbidden, isClanAdmin } from "@/lib/authz";
 
 // GET /api/organisations/attendance?batchId=&date=YYYY-MM-DD
 export async function GET(req: Request) {
@@ -23,7 +9,6 @@ export async function GET(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { searchParams } = new URL(req.url);
     const batchId = searchParams.get("batchId");
     const date = searchParams.get("date");
@@ -31,6 +16,7 @@ export async function GET(req: Request) {
     if (!batchId || !date) {
       return NextResponse.json({ error: "batchId and date are required" }, { status: 400 });
     }
+    if (!(await isClanAdmin(uid, batchId))) return forbidden("Only coaches can view attendance for a batch");
 
     const rows = await executeQuery(
       `SELECT a.user_id, a.status, u.name
@@ -53,11 +39,17 @@ export async function POST(req: Request) {
   if (!uid) return unauthorized();
 
   try {
-    await executeQuery(ENSURE_TABLE);
     const { batchId, date, sessionName, records } = await req.json();
 
     if (!batchId || !date || !Array.isArray(records)) {
       return NextResponse.json({ error: "batchId, date, and records are required" }, { status: 400 });
+    }
+    if (!(await isClanAdmin(uid, batchId))) return forbidden("Only coaches can mark attendance");
+    if (records.some((r: { status?: string }) => !["present", "absent", "late"].includes(r?.status ?? ""))) {
+      return NextResponse.json({ error: "Each record needs a status of present, absent or late" }, { status: 400 });
+    }
+    if (records.length && !(await areClanMembers(batchId, records.map((r: { userId: string }) => r.userId)))) {
+      return NextResponse.json({ error: "All students must be members of this batch" }, { status: 400 });
     }
 
     for (const r of records) {

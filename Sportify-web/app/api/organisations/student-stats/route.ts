@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 // GET /api/organisations/student-stats?userId=&batchId=
 export async function GET(req: Request) {
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
     if (!batchId) {
       return NextResponse.json({ error: "batchId is required" }, { status: 400 });
     }
+    if (userId !== uid && !(await isClanAdmin(uid, batchId))) return forbidden();
 
     // ── Basic user info ──────────────────────────────────────────────────────
     const [user] = await executeQuery(
@@ -42,14 +44,14 @@ export async function GET(req: Request) {
 
     const phOrg = orgClanIds.map(() => "?").join(",");
 
-    // ── Regular singles match stats (InternalsinglesMatches — note lowercase s) ─
+    // ── Regular singles match stats (InternalSinglesMatches — note lowercase s) ─
     const [singlesRow] = await executeQuery(
       `SELECT
          COUNT(*) AS played,
          SUM(CASE WHEN winner_player = ? THEN 1 ELSE 0 END) AS won,
          SUM(CASE WHEN winner_player IS NOT NULL AND winner_player != ?
                   THEN 1 ELSE 0 END) AS lost
-       FROM InternalsinglesMatches
+       FROM InternalSinglesMatches
        WHERE (player_1 = ? OR player_2 = ?)
          AND clan_id IN (${phOrg})`,
       [userId, userId, userId, userId, ...orgClanIds]

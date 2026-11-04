@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { STARTING_POINTS } from "@/lib/scoring";
 
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
@@ -46,8 +47,8 @@ export async function POST(req: Request) {
       );
 
       await connection.execute(
-        "INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points, matchesplayed, matcheswon, matcheslost) VALUES (?, ?, 0, 0, 0, 0)",
-        [batch.clan_id, uid]
+        "INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points, matchesplayed, matcheswon, matcheslost) VALUES (?, ?, ?, 0, 0, 0)",
+        [batch.clan_id, uid, STARTING_POINTS]
       );
 
       await connection.commit();

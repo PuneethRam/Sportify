@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ResultSetHeader } from 'mysql2/promise';
 import { createConnection } from '@/lib/db'; // Import the createConnection function
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { STARTING_POINTS } from "@/lib/scoring";
 
 // POST: Create a new clan
 export async function POST(req: Request) {
@@ -37,8 +38,8 @@ export async function POST(req: Request) {
       );
 
       await connection.execute(
-        `INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points) VALUES (?, ?, 0)`,
-        [clanId, uid]
+        `INSERT INTO ClanLeaderboard (clan_id, user_id, clan_points) VALUES (?, ?, ?)`,
+        [clanId, uid, STARTING_POINTS]
       );
 
       // Commit transaction

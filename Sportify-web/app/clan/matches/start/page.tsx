@@ -124,8 +124,10 @@ function MatchContent() {
         throw new Error("Failed to submit match data");
       }
 
-      //const result = await response.json();
-      alert("Match recorded successfully!");
+      const result = await response.json();
+      alert(result.status === "pending"
+        ? "Result submitted — it will count once the other side confirms it."
+        : "Match recorded successfully!");
       
       // Redirect to matches list
       router.push(`/clan/matches?clanId=${clanId}`);

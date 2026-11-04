@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { areClanMembers, forbidden, isClanAdmin } from "@/lib/authz";
 
 export async function POST(req: Request) {
   try {
@@ -20,6 +21,15 @@ export async function POST(req: Request) {
         { error: 'Invalid series type. Must be either "singles" or "doubles"' },
         { status: 400 }
       );
+    }
+
+    if (!(await isClanAdmin(uid, clanId))) return forbidden("Only clan admins can create a series");
+
+    const allPlayers = [...(Array.isArray(Team1_players) ? Team1_players : []), ...(Array.isArray(Team2players) ? Team2players : [])]
+      .map((p: string | { id?: string; user_id?: string }) => typeof p === "string" ? p : p?.id ?? p?.user_id)
+      .filter((p): p is string => !!p);
+    if (allPlayers.length && !(await areClanMembers(clanId, allPlayers))) {
+      return NextResponse.json({ error: "All players must be members of this clan" }, { status: 400 });
     }
 
     const team1PlayersJson = Array.isArray(Team1_players) ? JSON.stringify(Team1_players) : Team1_players;

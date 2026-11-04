@@ -36,6 +36,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const { id } = await params;
     const { status } = await req.json();
+    if (!["open", "full", "completed", "cancelled"].includes(status)) {
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
     await executeQuery(
       `UPDATE GameSessions SET status = ? WHERE session_id = ? AND host_user_id = ?`,
       [status, id, uid]

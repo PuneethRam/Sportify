@@ -201,7 +201,8 @@ const submitMatch = async () => {
     const data = await response.json();
     
     if (data.success) {
-      // Leaderboard is now updated atomically inside update_match — no separate call needed
+      // Player-submitted results stay pending until the other side confirms
+      if (data.status === "pending") alert("Result submitted — it will count once the other side confirms it.");
 
       // Refresh match data
       const refreshResponse = await fetchWithAuth(`/api/clans/series/get_series_details?clanId=${clanId}&seriesId=${seriesId}`);

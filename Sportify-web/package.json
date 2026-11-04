@@ -1,17 +1,21 @@
 {
-  "name": "p2p-energy-app",
+  "name": "sportify-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "node db/migrate.mjs",
+    "db:status": "node db/migrate.mjs --status"
   },
   "dependencies": {
+    "@sentry/nextjs": "^11.10.0",
     "autoprefixer": "^10.4.20",
     "axios": "^1.7.9",
-    "ethers": "^6.13.5",
     "firebase": "^11.3.1",
     "firebase-admin": "^13.10.0",
     "firestore": "^1.1.6",
@@ -32,6 +36,7 @@
     "eslint-config-next": "15.1.6",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

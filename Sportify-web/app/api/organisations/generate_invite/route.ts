@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 function generateInviteCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -26,19 +27,7 @@ export async function POST(req: Request) {
     }
 
     // Verify user is Coach or org Owner of this batch
-    const [memberRows] = await connection.execute(
-      "SELECT role FROM ClanMembers WHERE clan_id = ? AND user_id = ?",
-      [batchId, uid]
-    );
-
-    if (!Array.isArray(memberRows) || memberRows.length === 0) {
-      return NextResponse.json({ error: "Not authorised" }, { status: 403 });
-    }
-
-    const role = (memberRows[0] as { role: string }).role;
-    if (role !== "Coach" && role !== "Admin" && role !== "Owner") {
-      return NextResponse.json({ error: "Only coaches can regenerate invite codes" }, { status: 403 });
-    }
+    if (!(await isClanAdmin(uid, batchId))) return forbidden("Only coaches can regenerate invite codes");
 
     // Generate unique code
     let inviteCode = generateInviteCode();

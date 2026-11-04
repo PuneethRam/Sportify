@@ -134,7 +134,6 @@ function CoachDashboard({ data, userName }: { data: CoachData; userName: string 
   const totalBatches  = academy.batches.length;
   const totalStudents = academy.total_students;
   const avgAtt        = academy.avg_attendance;
-  const attCol        = attendanceColor(avgAtt);
   const initials      = userName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
   return (

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isOrgMember } from "@/lib/authz";
 
 export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
@@ -13,6 +14,7 @@ export async function GET(req: Request) {
     if (!orgId) {
       return NextResponse.json({ error: "Organisation ID is required" }, { status: 400 });
     }
+    if (!(await isOrgMember(uid, orgId))) return forbidden();
 
     const rows = await executeQuery(
       `SELECT

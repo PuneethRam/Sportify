@@ -23,8 +23,7 @@ export default function SignupPage() {
     setError(null);
     
     try {
-      const userCredential = await signup(email, password);
-      const user = userCredential.user;
+      await signup(email, password);
 
       // Save user details in MySQL
       await fetchWithAuth("/api/addUser", {

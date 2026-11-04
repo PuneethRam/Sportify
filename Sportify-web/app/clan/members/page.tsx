@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Users, Search, ArrowLeft, Loader2, Shield, ChevronRight } from "lucide-react";
+import { Users, Search, ArrowLeft, Loader2, ChevronRight } from "lucide-react";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
 type Member = {

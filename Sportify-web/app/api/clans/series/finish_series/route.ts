@@ -1,6 +1,7 @@
 import { createConnection } from '@/lib/db'; // Import the connection creator
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, isClanAdmin } from "@/lib/authz";
 
 export async function POST(req: Request) {
   try {
@@ -16,6 +17,8 @@ export async function POST(req: Request) {
         error: "Clan ID and Series ID are required" 
       }, { status: 400 });
     }
+
+    if (!(await isClanAdmin(uid, clanId))) return forbidden("Only clan admins can finish a series");
 
     const connection = await createConnection();
 
@@ -41,7 +44,7 @@ export async function POST(req: Request) {
       // Get match results based on series type
       if (series.series_type === 'singles') {
         const [matchRows] = await connection.execute(
-          `SELECT winner_player, player_1, player_2 FROM InternalsinglesMatches 
+          `SELECT winner_player, player_1, player_2 FROM InternalSinglesMatches 
            WHERE series_id = ? AND clan_id = ?`,
           [seriesId, clanId]
         );

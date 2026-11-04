@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, getManagedTournament } from "@/lib/authz";
 
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
@@ -15,6 +16,12 @@ export async function POST(req: Request) {
 
     if (!clanId || !tournamentId) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    }
+
+    const tournament = await getManagedTournament(uid, tournamentId);
+    if (!tournament || String(tournament.clan_id) !== String(clanId)) {
+      await connection.rollback();
+      return forbidden("Only the tournament host or a clan admin can start the knockout stage");
     }
 
     // Get tournament config

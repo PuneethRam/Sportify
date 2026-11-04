@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { forbidden, getManagedTournament } from "@/lib/authz";
 
 export async function DELETE(req: Request) {
   try {
@@ -16,17 +17,19 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: "Missing tournamentId or clanId" }, { status: 400 });
     }
 
+    const tournament = await getManagedTournament(uid, tournamentId);
+    if (!tournament || String(tournament.clan_id) !== String(clanId)) {
+      return forbidden("Only the tournament host or a clan admin can delete it");
+    }
+
     // Child records first (FK ordering)
     await executeQuery(`DELETE FROM TournamentGroupTeams WHERE group_id IN (SELECT group_id FROM TournamentGroups WHERE tournament_id = ?)`, [tournamentId]);
     await executeQuery(`DELETE FROM TournamentGroups WHERE tournament_id = ?`, [tournamentId]);
     await executeQuery(`DELETE FROM TournamentMatches WHERE tournament_id = ?`, [tournamentId]);
     await executeQuery(`DELETE FROM TournamentTeams WHERE tournament_id = ?`, [tournamentId]);
 
-    // Hosted tournament tables (safe to ignore if they don't exist yet)
-    try {
-      await executeQuery(`DELETE FROM HostedTournamentRegistrations WHERE tournament_id = ?`, [tournamentId]);
-      await executeQuery(`DELETE FROM HostedTournamentTeams WHERE tournament_id = ?`, [tournamentId]);
-    } catch { /* tables may not exist if host_tournament was never called */ }
+    await executeQuery(`DELETE FROM HostedTournamentRegistrations WHERE tournament_id = ?`, [tournamentId]);
+    await executeQuery(`DELETE FROM HostedTournamentTeams WHERE tournament_id = ?`, [tournamentId]);
 
     const result = await executeQuery(
       `DELETE FROM Tournaments WHERE tournament_id = ? AND clan_id = ?`,

@@ -1,166 +1,114 @@
 import { createConnection } from '@/lib/db';
 import { NextResponse } from "next/server";
-import { ResultSetHeader } from 'mysql2';
+import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { areClanMembers, forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
+import { determineWinner, parseGames } from "@/lib/scoring";
+import { finalizeSubmission, loadSubmission } from "@/lib/matchSubmissions";
 
-function determineWinner(score: string): "player1" | "player2" | null {
-  const sets = score.split(',').map(s => s.trim());
-  let p1Wins = 0, p2Wins = 0;
-
-  for (const set of sets) {
-    const [s1, s2] = set.split('-').map(n => parseInt(n.trim(), 10));
-    if (isNaN(s1) || isNaN(s2)) continue;
-    if (s1 > s2) p1Wins++;
-    else if (s2 > s1) p2Wins++;
-  }
-
-  if (p1Wins > p2Wins) return "player1";
-  if (p2Wins > p1Wins) return "player2";
-  return null;
-}
-
-function calcPoints(score: string): number {
-  // Net signed diff across all games — same formula as tournament matches
-  const games = score.split(',');
-  let netDiff = 0, gameCount = 0;
-  for (const g of games) {
-    const m = /(\d+)-(\d+)/.exec(g.trim());
-    if (m) { netDiff += parseInt(m[1]) - parseInt(m[2]); gameCount++; }
-  }
-  if (gameCount === 0) return 5;
-  return 5 + (Math.abs(netDiff) / 10) * 2;
-}
-
+// POST: submit a clan match result.
+// A result submitted by a player stays pending until a player on the other
+// side confirms it (POST /api/clans/matches/confirm). A clan admin's
+// submission is confirmed immediately.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
 
+  const data = await req.json();
+  const { matchType, clanId, scoreDetails } = data;
+
+  if (!matchType || !clanId || !scoreDetails) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  const score = scoreDetails.score;
+  if (!score || !parseGames(score).length) {
+    return NextResponse.json({ error: "Score is required, e.g. \"21-15, 21-18\"" }, { status: 400 });
+  }
+
+  let team1: string[];
+  let team2: string[];
+  if (matchType === "singles") {
+    team1 = [data.player1];
+    team2 = [data.player2];
+  } else if (matchType === "doubles") {
+    team1 = [data.team1Player1, data.team1Player2];
+    team2 = [data.team2Player1, data.team2Player2];
+  } else {
+    return NextResponse.json({ error: "Invalid match type" }, { status: 400 });
+  }
+
+  const players = [...team1, ...team2];
+  if (players.some(p => !p || typeof p !== "string")) {
+    return NextResponse.json({ error: "Missing player information" }, { status: 400 });
+  }
+  if (new Set(players).size !== players.length) {
+    return NextResponse.json({ error: "A player can only appear once in a match" }, { status: 400 });
+  }
+
+  const admin = await isClanAdmin(uid, clanId);
+  if (!admin && (!players.includes(uid) || !(await isClanMember(uid, clanId)))) {
+    return forbidden("Only players in this match or a clan admin can submit its result");
+  }
+  if (!(await areClanMembers(clanId, players))) {
+    return NextResponse.json({ error: "All players must be members of this clan" }, { status: 400 });
+  }
+
+  const winner = determineWinner(score);
   const connection = await createConnection();
 
   try {
-    const data = await req.json();
-    const { matchType, clanId, scoreDetails } = data;
-
-    if (!matchType || !clanId || !scoreDetails) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
-    const score = scoreDetails.score;
-    if (!score) {
-      return NextResponse.json({ error: "Score is required" }, { status: 400 });
-    }
-
-    const winner = determineWinner(score);
-    const points = calcPoints(score);
-    const scoreDetailsJson = JSON.stringify(scoreDetails);
     const series_id = data.series_id || null;
-
-    let team1Players: string[] = [];
-    let team2Players: string[] = [];
-    let matchResult: ResultSetHeader;
+    if (series_id) {
+      const [series] = await connection.execute<RowDataPacket[]>(
+        `SELECT series_type FROM InternalSeries WHERE series_id = ? AND clan_id = ? AND end_date IS NULL`,
+        [series_id, clanId]
+      );
+      if (!series.length) {
+        return NextResponse.json({ error: "Series not found or already finished" }, { status: 400 });
+      }
+      if (series[0].series_type !== matchType) {
+        return NextResponse.json({ error: `This is a ${series[0].series_type} series` }, { status: 400 });
+      }
+    }
 
     await connection.beginTransaction();
 
     try {
-      if (matchType === "singles") {
-        const { player1, player2 } = data;
-        if (!player1 || !player2) {
-          await connection.rollback();
-          return NextResponse.json({ error: "Missing player information" }, { status: 400 });
-        }
+      const [ins] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO MatchSubmissions
+         (clan_id, match_type, series_id, team1_player1, team1_player2, team2_player1, team2_player2,
+          score_details, winner, submitted_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [clanId, matchType, series_id, team1[0], team1[1] ?? null, team2[0], team2[1] ?? null,
+         JSON.stringify(scoreDetails), winner, uid]
+      );
 
-        team1Players = [player1];
-        team2Players = [player2];
-        const winnerPlayer = winner === "player1" ? player1 : winner === "player2" ? player2 : null;
+      let status = "pending";
+      let matchId: number | null = null;
+      let pointsAwarded = 0;
 
-        [matchResult] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO InternalSinglesMatches
-           (clan_id, player_1, player_2, score_details, winner_player, series_id)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [clanId, player1, player2, scoreDetailsJson, winnerPlayer, series_id]
-        );
-
-      } else if (matchType === "doubles") {
-        const { team1Player1, team1Player2, team2Player1, team2Player2 } = data;
-        if (!team1Player1 || !team1Player2 || !team2Player1 || !team2Player2) {
-          await connection.rollback();
-          return NextResponse.json({ error: "Missing player information" }, { status: 400 });
-        }
-
-        team1Players = [team1Player1, team1Player2];
-        team2Players = [team2Player1, team2Player2];
-        const winnerTeam = winner === "player1" ? "team1" : winner === "player2" ? "team2" : null;
-
-        [matchResult] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO InternalDoublesMatches
-           (clan_id, team1_player1, team1_player2, team2_player1, team2_player2, score_details, winner_team, series_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [clanId, team1Player1, team1Player2, team2Player1, team2Player2, scoreDetailsJson, winnerTeam, series_id]
-        );
-
-      } else {
-        await connection.rollback();
-        return NextResponse.json({ error: "Invalid match type" }, { status: 400 });
-      }
-
-      // ── Leaderboard update in the same transaction ──────────────────
-      if (winner === null) {
-        // Draw — just increment matchesplayed for everyone
-        for (const playerId of [...team1Players, ...team2Players]) {
-          if (playerId) {
-            await connection.execute(
-              `UPDATE ClanLeaderboard
-               SET matchesplayed = matchesplayed + 1, last_updated = CURRENT_TIMESTAMP
-               WHERE clan_id = ? AND user_id = ?`,
-              [clanId, playerId]
-            );
-          }
-        }
-      } else {
-        const winningPlayers = winner === "player1" ? team1Players : team2Players;
-        const losingPlayers  = winner === "player1" ? team2Players : team1Players;
-
-        const ptsCol = matchType === "singles" ? "singles_points" : "doubles_points";
-
-        for (const playerId of winningPlayers) {
-          if (playerId) {
-            await connection.execute(
-              `UPDATE ClanLeaderboard
-               SET clan_points   = clan_points + ?,
-                   ${ptsCol}     = ${ptsCol} + ?,
-                   matchesplayed = matchesplayed + 1,
-                   matcheswon    = matcheswon + 1,
-                   last_updated  = CURRENT_TIMESTAMP
-               WHERE clan_id = ? AND user_id = ?`,
-              [points, points, clanId, playerId]
-            );
-          }
-        }
-
-        for (const playerId of losingPlayers) {
-          if (playerId) {
-            await connection.execute(
-              `UPDATE ClanLeaderboard
-               SET clan_points   = GREATEST(clan_points - ?, 0),
-                   ${ptsCol}     = GREATEST(${ptsCol} - ?, 0),
-                   matchesplayed = matchesplayed + 1,
-                   matcheslost   = matcheslost + 1,
-                   last_updated  = CURRENT_TIMESTAMP
-               WHERE clan_id = ? AND user_id = ?`,
-              [points, points, clanId, playerId]
-            );
-          }
-        }
+      if (admin) {
+        const submission = await loadSubmission(connection, ins.insertId);
+        const result = await finalizeSubmission(connection, submission!, uid);
+        status = "confirmed";
+        matchId = result.matchId;
+        pointsAwarded = result.points;
       }
 
       await connection.commit();
 
       return NextResponse.json({
         success: true,
-        message: "Match recorded and leaderboard updated",
-        matchId: matchResult!.insertId,
-        winner,
-        pointsAwarded: winner ? points : 0
+        message: status === "confirmed"
+          ? "Match recorded and leaderboard updated"
+          : "Result submitted — waiting for the other side to confirm",
+        status,
+        submissionId: ins.insertId,
+        matchId,
+        // "player1" / "player2" (team1 / team2) for compatibility with existing clients
+        winner: winner === "team1" ? "player1" : winner === "team2" ? "player2" : null,
+        pointsAwarded,
       }, { status: 201 });
 
     } catch (err) {
