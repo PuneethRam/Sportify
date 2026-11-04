@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { joinGameSession, JoinError } from "@/lib/membership";
+import { notifySessionJoined } from "@/lib/sessionNotifications";
 
 // POST /api/game-sessions/[id]/join
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -11,39 +13,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const { userName } = await req.json();
 
-    // Lock: fetch session + current count atomically
-    const [session] = await executeQuery(
-      `SELECT gs.session_id, gs.max_players, gs.status, COUNT(gsp.id) AS joined_count
-       FROM GameSessions gs
-       LEFT JOIN GameSessionPlayers gsp ON gsp.session_id = gs.session_id
-       WHERE gs.session_id = ?
-       GROUP BY gs.session_id`,
-      [id]
-    ) as { session_id: number; max_players: number; status: string; joined_count: number }[];
-
-    if (!session) return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    if (session.status === "cancelled") return NextResponse.json({ error: "Session cancelled" }, { status: 400 });
-    if (session.status === "completed") return NextResponse.json({ error: "Session already completed" }, { status: 400 });
-    if (Number(session.joined_count) >= session.max_players) {
-      return NextResponse.json({ error: "Session is full" }, { status: 400 });
+    try {
+      await joinGameSession(uid, Number(id), userName || null);
+    } catch (err) {
+      // Joining twice has always been a no-op success
+      if (err instanceof JoinError && err.alreadyMember) return NextResponse.json({ success: true });
+      throw err;
     }
-
-    await executeQuery(
-      `INSERT IGNORE INTO GameSessionPlayers (session_id, user_id, user_name) VALUES (?, ?, ?)`,
-      [id, uid, userName || null]
-    );
-
-    // Update status to 'full' if now at capacity
-    const [updated] = await executeQuery(
-      `SELECT COUNT(*) AS cnt FROM GameSessionPlayers WHERE session_id = ?`,
-      [id]
-    ) as { cnt: number }[];
-    if (Number(updated.cnt) >= session.max_players) {
-      await executeQuery(`UPDATE GameSessions SET status = 'full' WHERE session_id = ?`, [id]);
-    }
-
+    await notifySessionJoined(Number(id), uid);
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof JoinError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

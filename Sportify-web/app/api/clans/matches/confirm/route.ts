@@ -3,6 +3,7 @@ import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, isClanAdmin } from "@/lib/authz";
 import { finalizeSubmission, isOpponentOfSubmitter, loadSubmission, SubmissionConflict } from "@/lib/matchSubmissions";
+import { notifyResultConfirmed, notifyResultDisputed } from "@/lib/resultNotifications";
 
 // POST /api/clans/matches/confirm
 // Body: { submissionId, action: "confirm" | "reject" }
@@ -48,11 +49,13 @@ export async function POST(req: Request) {
           [uid, submission.submission_id]
         );
         await connection.commit();
+        await notifyResultDisputed(submission, uid);
         return NextResponse.json({ success: true, status: "disputed", matchId: null });
       }
 
       const result = await finalizeSubmission(connection, submission, uid);
       await connection.commit();
+      await notifyResultConfirmed(submission, uid);
       return NextResponse.json({ success: true, status: "confirmed", matchId: result.matchId, pointsAwarded: result.points });
     } catch (err) {
       await connection.rollback();

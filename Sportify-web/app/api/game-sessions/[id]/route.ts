@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { notifySessionChanged } from "@/lib/sessionNotifications";
 
 // GET /api/game-sessions/[id] — session detail + player list
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -39,10 +40,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!["open", "full", "completed", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
-    await executeQuery(
+    const res = await executeQuery(
       `UPDATE GameSessions SET status = ? WHERE session_id = ? AND host_user_id = ?`,
       [status, id, uid]
-    );
+    ) as { changedRows: number };
+    // Marking it completed after play needs no push
+    if (res.changedRows > 0 && status !== "completed") {
+      await notifySessionChanged(Number(id), uid, status);
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
