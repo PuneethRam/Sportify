@@ -15,25 +15,47 @@ import '../screens/academy/org_detail_screen.dart';
 import '../screens/clans/player_profile_screen.dart';
 import '../screens/clans/start_match_screen.dart';
 import '../screens/clans/tournament_detail_screen.dart';
+import '../screens/invite/invite_screen.dart';
+import '../screens/settings/notification_settings_screen.dart';
 import '../widgets/loading_screen.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
 final _shellKey = GlobalKey<NavigatorState>();
 
+/// Auth gate. Signed-out users go to /login, remembering where they were
+/// headed (e.g. an invite link) so sign-in / sign-up can send them back.
+({String? to, String? pending}) authRedirect({
+  required bool loading,
+  required bool authed,
+  required Uri uri,
+  required String? pending,
+}) {
+  if (loading) return (to: null, pending: pending);
+
+  final loc    = uri.path;
+  final onAuth = loc == '/login' || loc == '/signup';
+  if (!authed) {
+    if (onAuth) return (to: null, pending: pending);
+    return (to: '/login', pending: loc == '/' ? pending : uri.toString());
+  }
+  if (pending != null) {
+    return (to: pending == uri.toString() ? null : pending, pending: null);
+  }
+  return (to: onAuth ? '/' : null, pending: null);
+}
+
 GoRouter buildRouter(AuthProvider authProvider) => GoRouter(
   navigatorKey: _rootKey,
   refreshListenable: authProvider,
   redirect: (context, state) {
-    final loading = authProvider.loading;
-    final authed  = authProvider.isAuthenticated;
-    final loc     = state.uri.path;
-
-    if (loading) return null;
-
-    final onAuth = loc == '/login' || loc == '/signup';
-    if (!authed && !onAuth) return '/login';
-    if (authed  &&  onAuth) return '/';
-    return null;
+    final r = authRedirect(
+      loading: authProvider.loading,
+      authed: authProvider.isAuthenticated,
+      uri: state.uri,
+      pending: authProvider.pendingLocation,
+    );
+    authProvider.pendingLocation = r.pending;
+    return r.to;
   },
   routes: [
     GoRoute(
@@ -43,6 +65,14 @@ GoRouter buildRouter(AuthProvider authProvider) => GoRouter(
     GoRoute(
       path: '/signup',
       builder: (_, __) => const SignupScreen(),
+    ),
+    GoRoute(
+      path: '/invite/:token',
+      builder: (_, state) => InviteScreen(token: state.pathParameters['token']!),
+    ),
+    GoRoute(
+      path: '/settings/notifications',
+      builder: (_, __) => const NotificationSettingsScreen(),
     ),
 
     ShellRoute(

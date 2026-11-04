@@ -1,9 +1,8 @@
 // app/api/clans/checkadmin/route.ts
 
 import { NextResponse } from "next/server";
-import { RowDataPacket } from 'mysql2';
-import { executeQuery } from '@/lib/db'; // Import the executeQuery helper
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { isClanAdmin } from "@/lib/authz";
 
 export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
@@ -20,15 +19,8 @@ export async function GET(req: Request) {
       }, { status: 400 });
     }
 
-    // Check if the user is an admin in the clan
-    const rows = await executeQuery(`
-        SELECT role
-        FROM ClanMembers
-        WHERE user_id = ? AND clan_id = ?
-    `, [uid, clanId]) as RowDataPacket[];
-
-    const members = rows;
-    const isAdmin = members.length > 0 && ['Admin', 'Coach', 'Owner'].includes(members[0]?.role);
+    // Admin / Coach / Owner of the clan, or the owner of the batch's academy
+    const isAdmin = await isClanAdmin(uid, clanId);
 
     return NextResponse.json({ 
       success: true,

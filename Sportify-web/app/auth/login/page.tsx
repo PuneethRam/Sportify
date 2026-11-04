@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { Loader2,ChevronRight, CheckCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
+import { nextPath, withNext } from "@/lib/nextPath";
 
 export default function LoginPage() {
   const { login, signInWithGoogle } = useAuth();
@@ -20,7 +21,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      router.push("/dashboard");
+      router.push(nextPath());
     } catch (error) {
       console.log(error);
       setError("Login failed. Check your credentials.");
@@ -34,7 +35,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await signInWithGoogle();
-      router.push("/dashboard");
+      router.push(nextPath());
     } catch (error) {
       console.log(error);
       setError("Google login failed. Try again.");
@@ -141,7 +142,7 @@ export default function LoginPage() {
               <p className="text-gray-600 dark:text-gray-400">
                 Don&apos;t have an account yet?{" "}
                 <a 
-                  href="/auth/signup" 
+                  href={withNext("/auth/signup")} 
                   className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
                 >
                   Create account

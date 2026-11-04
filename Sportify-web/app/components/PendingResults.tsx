@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, X, Hourglass, AlertTriangle } from "lucide-react";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 
 type Player = { id: string; name: string };
 type Pending = {
@@ -46,6 +47,7 @@ export default function PendingResults({ clanId, onResolved }: { clanId: string;
       });
       const data = await res.json();
       if (!data.success) alert(data.error || "Could not update this result");
+      else track(action === "confirm" ? "match_confirmed" : "match_disputed");
       await load();
       if (data.success && action === "confirm") onResolved?.();
     } finally {

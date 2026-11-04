@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { notifyAnnouncement } from "@/lib/announcementNotifications";
 import { forbidden, isOrgMember, isOrgStaff } from "@/lib/authz";
 
 // GET /api/organisations/org_announcements?orgId=
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
       [orgId, uid, authorName || null, title, body, pinned ? 1 : 0]
     ) as { insertId: number };
 
+    await notifyAnnouncement("org", orgId, uid, title);
     return NextResponse.json({ success: true, announcementId: result.insertId });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });

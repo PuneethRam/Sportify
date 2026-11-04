@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 import '../../widgets/loading_screen.dart';
 import '../../widgets/pending_results.dart';
 
@@ -893,6 +895,10 @@ class _PlayTabState extends State<_PlayTab> {
       }
 
       final res = await ApiService.instance.post('/api/clans/update_match', payload);
+      Analytics.instance.track('match_submitted', {
+        'match_type': widget.seriesType == 'doubles' ? 'doubles' : 'singles',
+        'status': res['status'] == 'pending' ? 'pending' : 'confirmed',
+      });
       _scoreCtrl.clear();
       setState(() {
         _selT1 = widget.seriesType == 'doubles' ? ['', ''] : [''];
@@ -904,6 +910,7 @@ class _PlayTabState extends State<_PlayTab> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(
                 matchSubmitMessage(res, confirmed: 'Match recorded!'))));
+        PushService.instance.maybeAskPermission(context);
       }
     } catch (e) {
       setState(() => _submitting = false);

@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     // Update match score, winner, and player selections
     await connection.execute(
       `UPDATE TournamentMatches
-       SET winner_team_id = ?, score_details = ?,
+       SET winner_team_id = ?, score_details = ?, recorded_at = NOW(),
            team1_players = COALESCE(?, team1_players),
            team2_players = COALESCE(?, team2_players)
        WHERE match_id = ? AND tournament_id = ?`,

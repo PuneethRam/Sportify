@@ -8,6 +8,8 @@ const dbConfig = {
   port:     Number(process.env.MYSQL_PORT),
   // Azure MySQL — cert verified at the network level. MYSQL_SSL=false for local / CI databases.
   ssl:      process.env.MYSQL_SSL === "false" ? undefined : { rejectUnauthorized: false },
+  // The database runs in UTC; read and write DATETIMEs as UTC whatever the host's timezone
+  timezone: "Z",
 };
 
 // ── Connection pool ─────────────────────────────────────────────────────────

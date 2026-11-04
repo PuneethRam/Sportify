@@ -19,6 +19,8 @@ import { executeQuery } from "@/lib/db";
  *   - tournament manager: clan admin of the tournament's clan, or its creator
  *   - org owner:     Organisations.owner_user_id
  *   - org staff:     org owner, or clan admin of any batch in the org
+ *   - session host:  GameSessions.host_user_id
+ *   - platform admin: Sportify staff, from PLATFORM_ADMIN_UIDS (internal metrics)
  */
 
 export const CLAN_ADMIN_ROLES = ["Admin", "Coach", "Owner"];
@@ -92,6 +94,22 @@ export async function isOrgMember(uid: string, orgId: unknown): Promise<boolean>
     [orgId, uid]
   ) as RowDataPacket[];
   return rows.length > 0;
+}
+
+export async function isSessionHost(uid: string, sessionId: unknown): Promise<boolean> {
+  const rows = await executeQuery(
+    `SELECT 1 FROM GameSessions WHERE session_id = ? AND host_user_id = ?`,
+    [sessionId, uid]
+  ) as RowDataPacket[];
+  return rows.length > 0;
+}
+
+/**
+ * Sportify staff who can see internal metrics. A comma-separated list of
+ * Firebase uids in PLATFORM_ADMIN_UIDS; nobody if unset.
+ */
+export function isPlatformAdmin(uid: string): boolean {
+  return (process.env.PLATFORM_ADMIN_UIDS ?? "").split(",").map(s => s.trim()).filter(Boolean).includes(uid);
 }
 
 /**

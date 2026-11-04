@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import ShareInviteButton from "@/app/components/ShareInviteButton";
 
 const features = [
   {
@@ -106,6 +107,7 @@ function ClanDetailsContent() {
   // batch extras
   const [tab, setTab]                         = useState<ClanTab>("overview");
   const [isBatch, setIsBatch]                 = useState(false);
+  const [isAdmin, setIsAdmin]                 = useState(false);
   const [sessions, setSessions]               = useState<Session[]>([]);
   const [announcements, setAnnouncements]     = useState<Announcement[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -125,6 +127,8 @@ function ClanDetailsContent() {
       finally { setLoading(false); }
     };
     fetchClan();
+    fetchWithAuth(`/api/clans/checkadmin?clanId=${clanId}`)
+      .then(r => r.json()).then(d => setIsAdmin(!!d.isAdmin)).catch(() => {});
   }, [clanId]);
 
   const fetchSessions = useCallback(async () => {
@@ -222,10 +226,13 @@ function ClanDetailsContent() {
                 </div>
               </div>
             </div>
-            <button onClick={() => setShowLeaveModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 transition-colors text-xs font-semibold flex-shrink-0">
-              <LogOut className="w-3.5 h-3.5" /> Leave
-            </button>
+            <div className="flex items-start gap-2 flex-shrink-0">
+              {isAdmin && clanId && <ShareInviteButton type={isBatch ? "batch" : "clan"} id={clanId} name={clan.name} />}
+              <button onClick={() => setShowLeaveModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 transition-colors text-xs font-semibold flex-shrink-0">
+                <LogOut className="w-3.5 h-3.5" /> Leave
+              </button>
+            </div>
           </div>
         </div>
       </div>

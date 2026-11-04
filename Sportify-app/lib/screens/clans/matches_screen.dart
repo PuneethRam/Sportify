@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../models/match_model.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
 import '../../widgets/pending_results.dart';
@@ -89,6 +90,10 @@ class _MatchesTabState extends State<MatchesTab>
         'submissionId': item['submissionId'],
         'action': action,
       });
+      Analytics.instance.track(
+        action == 'confirm' ? 'match_confirmed' : 'match_disputed',
+        {'match_type': item['matchType']?.toString() ?? 'unknown'},
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(action == 'confirm' ? 'Result confirmed' : 'Result disputed')));

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 import {
   Building2, Plus, KeyRound, ChevronRight, Users, Loader2,
   X, Crown, BookOpen, Trophy,
@@ -109,6 +110,7 @@ function AcademyContent() {
       });
       const data = await res.json();
       if (!res.ok) { setJoinError(data.error || "Invalid code"); return; }
+      track("batch_joined", { via: "code" });
       await load();
       setInviteCode(""); setShowJoin(false);
     } finally { setJoining(false); }

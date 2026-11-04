@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import ShareInviteButton from "@/app/components/ShareInviteButton";
 import {
   Building2, Plus, Users, Copy, RefreshCw, ChevronRight,
   X, Check, ArrowLeft, Loader2, Calendar, Bell, Pin,
@@ -400,6 +401,10 @@ export default function OrgPage() {
                             <RefreshCw className={`w-4 h-4 text-slate-400 ${regenerating === batch.clan_id ? "animate-spin" : ""}`} />
                           </button>
                         </div>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <ShareInviteButton type="batch" id={batch.clan_id} name={batch.name}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors disabled:opacity-50" />
                       </div>
                     </div>
                   </div>

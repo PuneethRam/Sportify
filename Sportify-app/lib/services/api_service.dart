@@ -132,10 +132,13 @@ class ApiService {
     return _parse(res);
   }
 
-  Future<Map<String, dynamic>> delete(String path) async {
+  Future<Map<String, dynamic>> delete(String path, {Map<String, dynamic>? body}) async {
     _syncCacheOwner();
-    final res = await _send(
-        (h) => _client.delete(Uri.parse('$kApiBase$path'), headers: h));
+    final res = await _send((h) => _client.delete(
+      Uri.parse('$kApiBase$path'),
+      headers: h,
+      body: body == null ? null : jsonEncode(body),
+    ));
     final parsed = _parse(res);
     _invalidateRelated(path);
     return parsed;

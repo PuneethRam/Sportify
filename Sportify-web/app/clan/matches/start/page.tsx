@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 
 interface Player {
   user_id: string;
@@ -125,6 +126,7 @@ function MatchContent() {
       }
 
       const result = await response.json();
+      track("match_submitted", { match_type: matchData.matchType, status: result.status });
       alert(result.status === "pending"
         ? "Result submitted — it will count once the other side confirms it."
         : "Match recorded successfully!");

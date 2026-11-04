@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../services/analytics.dart';
 import '../../services/auth_service.dart';
 import '../../core/theme.dart';
 
@@ -36,6 +37,7 @@ class _SignupScreenState extends State<SignupScreen> {
         _passwordCtrl.text,
         _nameCtrl.text.trim(),
       );
+      Analytics.instance.track('signup_completed', {'method': 'email'});
       if (mounted) context.go('/');
     } catch (e) {
       setState(() { _error = e.toString().replaceAll('Exception: ', ''); });

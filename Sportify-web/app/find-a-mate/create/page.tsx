@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getAuth } from "firebase/auth";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { track } from "@/lib/track";
 import { ArrowLeft, MapPin, Flame, Loader2, Users } from "lucide-react";
 
 const SPORTS = ["Badminton", "Tennis", "Pickleball", "Football", "Cricket", "Basketball", "Table Tennis", "Other"];
@@ -64,6 +65,7 @@ export default function HostGamePage() {
       });
       const d = await res.json();
       if (!d.success) throw new Error(d.error || "Failed to create");
+      track("session_created", { sport: sport || null, max_players: maxPlayers });
       router.push(`/find-a-mate/${d.sessionId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create game");

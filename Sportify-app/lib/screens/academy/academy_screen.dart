@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../models/organisation_model.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 import '../../widgets/loading_screen.dart';
 
 class AcademyScreen extends StatefulWidget {
@@ -211,8 +213,10 @@ class _AcademyScreenState extends State<AcademyScreen> {
                 try {
                   await ApiService.instance.post('/api/organisations/join_batch',
                     {'inviteCode': ctrl.text.trim()});
+                  Analytics.instance.track('batch_joined', {'source': 'code'});
                   if (ctx.mounted) Navigator.pop(ctx);
                   _load();
+                  PushService.instance.maybeAskPermission();
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(e.toString())));

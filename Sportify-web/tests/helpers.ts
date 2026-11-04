@@ -1,6 +1,7 @@
 import { executeQuery } from "@/lib/db";
 
-type Handler = (req: Request, ctx?: { params: Promise<Record<string, string>> }) => Promise<Response>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Handler = (req: Request, ctx: { params: Promise<any> }) => Promise<Response>;
 
 /** Calls a route handler the way Next would. `uid` null = no Authorization header. */
 export async function call(

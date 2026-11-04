@@ -5,6 +5,7 @@ import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { areClanMembers, forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
 import { determineWinner, parseGames } from "@/lib/scoring";
 import { finalizeSubmission, loadSubmission } from "@/lib/matchSubmissions";
+import { notifyResultConfirmed, notifyResultSubmitted } from "@/lib/resultNotifications";
 
 // POST: submit a clan match result.
 // A result submitted by a player stays pending until a player on the other
@@ -97,6 +98,12 @@ export async function POST(req: Request) {
       }
 
       await connection.commit();
+
+      const submission = await loadSubmission(connection, ins.insertId);
+      if (submission) {
+        if (status === "confirmed") await notifyResultConfirmed(submission, uid);
+        else await notifyResultSubmitted(submission);
+      }
 
       return NextResponse.json({
         success: true,

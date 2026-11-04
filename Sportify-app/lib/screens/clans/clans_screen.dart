@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../models/clan_model.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/loading_screen.dart';
 
@@ -116,6 +118,7 @@ class _ClansScreenState extends State<ClansScreen> {
                 try {
                   await ApiService.instance.post('/api/clans/create_clan',
                     {'name': ctrl.text.trim()});
+                  Analytics.instance.track('clan_created');
                   if (ctx.mounted) Navigator.pop(ctx);
                   _load();
                 } catch (e) {
@@ -361,8 +364,10 @@ class _JoinClanSheetState extends State<_JoinClanSheet> {
                         try {
                           await ApiService.instance.post('/api/clans/join_clan',
                             {'clanId': c.clanId});
+                          Analytics.instance.track('clan_joined', {'source': 'browse'});
                           if (ctx.mounted) Navigator.pop(ctx);
                           widget.onJoined();
+                          PushService.instance.maybeAskPermission();
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text(e.toString())));

@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, Suspense, use } from "react";
 import { useRouter } from "next/navigation";
 import { getAuth } from "firebase/auth";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import ShareInviteButton from "@/app/components/ShareInviteButton";
+import { track } from "@/lib/track";
 import {
   ArrowLeft, MapPin, Clock, Users, Loader2, Send, UserMinus,
   Trophy, Crown, Check, Flame, ChevronRight, AlertTriangle, Timer,
@@ -163,6 +165,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       });
       const d = await res.json();
       if (!d.success) { setActionMsg(d.error); return; }
+      track("session_joined", { via: "page" });
       await fetchSession();
     } finally { setJoining(false); }
   };
@@ -325,6 +328,10 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                   {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Leave"}
                 </button>
               ) : null}
+              {isHost && (session.status === "open" || session.status === "full") && (
+                <ShareInviteButton type="session" id={sessionId} name={session.title}
+                  className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-sm font-semibold hover:bg-blue-50 dark:hover:bg-blue-500/8 transition-colors disabled:opacity-50" />
+              )}
               {isHost && (
                 <button onClick={cancelSession} disabled={cancelling}
                   className="px-4 py-3 rounded-xl border border-rose-200 dark:border-rose-500/30 text-rose-500 dark:text-rose-400 text-sm font-semibold hover:bg-rose-50 dark:hover:bg-rose-500/8 transition-colors disabled:opacity-50 ml-auto">
