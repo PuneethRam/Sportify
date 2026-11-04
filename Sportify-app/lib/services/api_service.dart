@@ -164,16 +164,66 @@ class ApiService {
       throw ApiException(
         body['error']?.toString() ?? 'Request failed',
         res.statusCode,
+        body: body,
       );
     }
     return body;
   }
+
+  // ── Phase 2: ratings, bulk entry, seasons, progress, share cards ─────────
+
+  /// Records a coach's batch of results in one go (all or nothing).
+  /// Each match: { matchType, player1, player2 | team1Player1..team2Player2,
+  /// score }. On a bad row the server answers 400 with `index` (0-based),
+  /// available as [ApiException.index].
+  Future<Map<String, dynamic>> recordBulkMatches(
+          String clanId, List<Map<String, dynamic>> matches) =>
+      post('/api/clans/matches/bulk', {'clanId': clanId, 'matches': matches});
+
+  /// A clan's / batch's season standing; [season] is "YYYY-MM" (default:
+  /// this month, India time).
+  Future<Map<String, dynamic>> getSeason(String clanId, {String? season}) =>
+      get('/api/clans/season',
+          query: {'clanId': clanId, if (season != null) 'season': season},
+          // The current season changes with every result
+          cached: false);
+
+  /// Ratings, weekly streak, badges and clan ranks (default: signed-in user).
+  Future<Map<String, dynamic>> getProgress({String? userId}) =>
+      get('/api/players/progress',
+          query: userId == null ? null : {'userId': userId}, cached: false);
+
+  /// Creates (or reuses) a public share link. Returns { url, token, imageUrl }.
+  ///   match:   source 'clan_singles' | 'clan_doubles' | 'tournament', matchId
+  ///   profile: own profile, optionally in [clanId]
+  Future<Map<String, dynamic>> createShareLink({
+    required String kind,
+    String? source,
+    int? matchId,
+    int? clanId,
+  }) =>
+      post('/api/share', {
+        'kind': kind,
+        if (source != null) 'source': source,
+        if (matchId != null) 'matchId': matchId,
+        if (clanId != null) 'clanId': clanId,
+      });
 }
 
 class ApiException implements Exception {
   final String message;
   final int statusCode;
-  ApiException(this.message, this.statusCode);
+
+  /// The decoded error response, when there was one.
+  final Map<String, dynamic>? body;
+  ApiException(this.message, this.statusCode, {this.body});
+
+  /// Row index the server blamed (e.g. bulk match entry), if any.
+  int? get index {
+    final v = body?['index'];
+    return v is int ? v : int.tryParse('${v ?? ''}');
+  }
+
   @override
   String toString() => message;
 }

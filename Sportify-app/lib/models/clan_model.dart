@@ -41,6 +41,14 @@ class ClanMember {
   final int doublesPlayed;
   final int doublesWon;
 
+  /// Glicko-2 ratings (null if the backend doesn't send them).
+  final int? singlesRating;
+  final bool singlesProvisional;
+  final int singlesRatedMatches;
+  final int? doublesRating;
+  final bool doublesProvisional;
+  final int doublesRatedMatches;
+
   ClanMember({
     required this.userId,
     required this.name,
@@ -54,7 +62,31 @@ class ClanMember {
     required this.singlesWon,
     required this.doublesPlayed,
     required this.doublesWon,
+    this.singlesRating,
+    this.singlesProvisional = true,
+    this.singlesRatedMatches = 0,
+    this.doublesRating,
+    this.doublesProvisional = true,
+    this.doublesRatedMatches = 0,
   });
+
+  bool get hasRatings => singlesRating != null || doublesRating != null;
+
+  int? ratingFor(String format) => format == 'doubles' ? doublesRating : singlesRating;
+  bool provisionalFor(String format) =>
+      format == 'doubles' ? doublesProvisional : singlesProvisional;
+  int ratedMatchesFor(String format) =>
+      format == 'doubles' ? doublesRatedMatches : singlesRatedMatches;
+
+  /// Leaderboard order for a format, as the backend's compareByRating():
+  /// rated players first (highest rating first), then provisional players.
+  static int compareByRating(ClanMember a, ClanMember b, String format) {
+    final p = (a.provisionalFor(format) ? 1 : 0) - (b.provisionalFor(format) ? 1 : 0);
+    if (p != 0) return p;
+    final r = (b.ratingFor(format) ?? 0) - (a.ratingFor(format) ?? 0);
+    if (r != 0) return r;
+    return b.ratedMatchesFor(format) - a.ratedMatchesFor(format);
+  }
 
   factory ClanMember.fromJson(Map<String, dynamic> j) => ClanMember(
     userId: j['user_id']?.toString() ?? '',
@@ -69,12 +101,20 @@ class ClanMember {
     singlesWon: _toInt(j['singles_won']),
     doublesPlayed: _toInt(j['doubles_played']),
     doublesWon: _toInt(j['doubles_won']),
+    singlesRating: j['singles_rating'] == null ? null : _toInt(j['singles_rating']),
+    singlesProvisional: j['singles_provisional'] == null || _isTrue(j['singles_provisional']),
+    singlesRatedMatches: _toInt(j['singles_rated_matches']),
+    doublesRating: j['doubles_rating'] == null ? null : _toInt(j['doubles_rating']),
+    doublesProvisional: j['doubles_provisional'] == null || _isTrue(j['doubles_provisional']),
+    doublesRatedMatches: _toInt(j['doubles_rated_matches']),
   );
 
   int get winRate => matchesPlayed > 0
       ? ((matchesWon / matchesPlayed) * 100).round()
       : 0;
 }
+
+bool _isTrue(dynamic v) => v == true || v == 1 || v == '1' || v == 'true';
 
 int _toInt(dynamic v) {
   if (v == null) return 0;

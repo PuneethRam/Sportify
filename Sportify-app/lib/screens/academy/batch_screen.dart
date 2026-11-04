@@ -5,6 +5,8 @@ import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/invite_share.dart';
 import '../../widgets/loading_screen.dart';
+import '../clans/bulk_results_screen.dart';
+import '../clans/season_screen.dart';
 import 'student_screen.dart';
 
 class BatchScreen extends StatefulWidget {
@@ -23,6 +25,9 @@ class _BatchScreenState extends State<BatchScreen>
   List<Map<String, dynamic>> _members = [];
   bool _loading = true;
   String? _currentUserId;
+  // Server-side admin check: also true for the academy owner, who usually
+  // isn't a member of the batch
+  bool _isClanAdmin = false;
 
   @override
   void initState() {
@@ -30,6 +35,20 @@ class _BatchScreenState extends State<BatchScreen>
     _tabs = TabController(length: 4, vsync: this);
     _currentUserId = context.read<AuthProvider>().uid;
     _loadMembers();
+    _checkAdmin();
+  }
+
+  Future<void> _checkAdmin() async {
+    try {
+      final data = await ApiService.instance.get(
+        '/api/clans/checkadmin',
+        query: {'clanId': widget.batchId},
+        cached: false,
+      );
+      if (mounted) {
+        setState(() => _isClanAdmin = data['isAdmin'] == true || data['isAdmin'] == 1);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -38,20 +57,25 @@ class _BatchScreenState extends State<BatchScreen>
     super.dispose();
   }
 
-  Future<void> _loadMembers() async {
+  Future<void> _loadMembers({bool fresh = false}) async {
     try {
       final data = await ApiService.instance.get(
         '/api/organisations/batch_members',
         query: {'batchId': widget.batchId},
+        cached: !fresh,
       );
+      if (!mounted) return;
       setState(() {
         _members = List<Map<String, dynamic>>.from(data['data'] ?? []);
         _loading = false;
       });
     } catch (_) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// Coach / admin of the batch, or the academy owner: may record results.
+  bool get _canRecord => _isCoach || _isClanAdmin;
 
   bool get _isCoach {
     if (_currentUserId == null) return false;
@@ -87,7 +111,13 @@ class _BatchScreenState extends State<BatchScreen>
         : TabBarView(
             controller: _tabs,
             children: [
-              _OverviewTab(members: _members, batchId: widget.batchId),
+              _OverviewTab(
+                members: _members,
+                batchId: widget.batchId,
+                batchName: widget.batchName,
+                canRecord: _canRecord,
+                onRecorded: () => _loadMembers(fresh: true),
+              ),
               _AttendanceTab(
                 batchId: widget.batchId,
                 members: _members,
@@ -112,7 +142,40 @@ class _BatchScreenState extends State<BatchScreen>
 class _OverviewTab extends StatelessWidget {
   final List<Map<String, dynamic>> members;
   final String batchId;
-  const _OverviewTab({required this.members, required this.batchId});
+  final String batchName;
+  final bool canRecord;
+  final VoidCallback onRecorded;
+  const _OverviewTab({
+    required this.members,
+    required this.batchId,
+    required this.batchName,
+    required this.canRecord,
+    required this.onRecorded,
+  });
+
+  Widget _actions(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: Row(children: [
+      if (canRecord) ...[
+        Expanded(child: ElevatedButton.icon(
+          onPressed: () async {
+            await Navigator.push(context, MaterialPageRoute(
+              builder: (_) => BulkResultsScreen(clanId: batchId, clanName: batchName)));
+            onRecorded();
+          },
+          icon: const Icon(Icons.playlist_add_check_rounded, size: 18),
+          label: const Text('Record results'),
+        )),
+        const SizedBox(width: 10),
+      ],
+      Expanded(child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(
+          builder: (_) => SeasonScreen(clanId: batchId, clanName: batchName))),
+        icon: const Icon(Icons.calendar_month_rounded, size: 18),
+        label: const Text('Season'),
+      )),
+    ]),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +193,7 @@ class _OverviewTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _actions(context),
         if (coaches.isNotEmpty) ...[
           _sectionLabel('Coaches', kColorAmber, Icons.star_rounded),
           const SizedBox(height: 8),

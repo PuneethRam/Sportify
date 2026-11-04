@@ -7,11 +7,15 @@ import '../../services/analytics.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
 import '../../widgets/pending_results.dart';
+import '../../widgets/rating_widgets.dart';
+import '../../widgets/share_card.dart';
+import 'bulk_results_screen.dart';
 
 class MatchesTab extends StatefulWidget {
   final String clanId;
   final bool isAdmin;
-  const MatchesTab({super.key, required this.clanId, required this.isAdmin});
+  final String? clanName;
+  const MatchesTab({super.key, required this.clanId, required this.isAdmin, this.clanName});
 
   @override
   State<MatchesTab> createState() => _MatchesTabState();
@@ -35,23 +39,25 @@ class _MatchesTabState extends State<MatchesTab>
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool fresh = false}) async {
     _loadPending();
     try {
       final data = await ApiService.instance.get(
         '/api/clans/get_matches',
         query: {'id': widget.clanId},
+        cached: !fresh,
       );
       final raw = data['data'];
       final all = raw is Map
           ? (raw['all'] as List? ?? [])
           : (raw as List? ?? []);
+      if (!mounted) return;
       setState(() {
         _matches = all.map((e) => ClanMatch.fromJson(e as Map<String, dynamic>)).toList();
         _loading = false;
       });
     } catch (_) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -142,10 +148,18 @@ class _MatchesTabState extends State<MatchesTab>
                 message: 'No matches yet',
                 icon: Icons.sports_tennis_outlined,
                 action: widget.isAdmin
-                    ? ElevatedButton(
-                        onPressed: _showNewMatch,
-                        child: const Text('Start Match'),
-                      )
+                    ? Column(mainAxisSize: MainAxisSize.min, children: [
+                        ElevatedButton(
+                          onPressed: _showNewMatch,
+                          child: const Text('Start Match'),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: _showBulk,
+                          icon: const Icon(Icons.playlist_add_rounded, size: 18),
+                          label: const Text('Record class results'),
+                        ),
+                      ])
                     : null,
               )
             : _buildList(),
@@ -168,32 +182,49 @@ class _MatchesTabState extends State<MatchesTab>
       if (widget.isAdmin)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: ElevatedButton.icon(
-            onPressed: _showNewMatch,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Start New Match'),
-          ),
+          child: Row(children: [
+            Expanded(child: ElevatedButton.icon(
+              onPressed: _showNewMatch,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('New Match'),
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: OutlinedButton.icon(
+              onPressed: _showBulk,
+              icon: const Icon(Icons.playlist_add_rounded, size: 18),
+              label: const Text('Record results'),
+            )),
+          ]),
         ),
       if (_filtered.isEmpty)
         const EmptyView(message: 'No matches yet', icon: Icons.sports_tennis_outlined),
     ];
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: header.length + _filtered.length,
-      itemBuilder: (_, i) {
-        if (i < header.length) return header[i];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _MatchCard(match: _filtered[i - header.length]),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: () => _load(fresh: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: header.length + _filtered.length,
+        itemBuilder: (_, i) {
+          if (i < header.length) return header[i];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _MatchCard(match: _filtered[i - header.length], clanName: widget.clanName),
+          );
+        },
+      ),
     );
   }
 
   Future<void> _showNewMatch() async {
     await context.push('/clans/${widget.clanId}/start-match');
     if (mounted) _load();
+  }
+
+  Future<void> _showBulk() async {
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => BulkResultsScreen(clanId: widget.clanId, clanName: widget.clanName)));
+    if (mounted) _load(fresh: true);
   }
 }
 
@@ -247,7 +278,21 @@ class _Filters extends StatelessWidget {
 
 class _MatchCard extends StatelessWidget {
   final ClanMatch match;
-  const _MatchCard({required this.match});
+  final String? clanName;
+  const _MatchCard({required this.match, this.clanName});
+
+  String _shareMessage() {
+    final a = match.team1.join(' & ');
+    final b = match.team2.join(' & ');
+    final score = match.scores.map((s) => s.length > 1 ? '${s[0]}-${s[1]}' : '').where((x) => x.isNotEmpty).join(', ');
+    final where = clanName == null || clanName!.isEmpty ? '' : ' in $clanName';
+    final winners = match.winnerIsTeam1 ? a : match.winnerIsTeam2 ? b : null;
+    final losers = match.winnerIsTeam1 ? b : match.winnerIsTeam2 ? a : null;
+    if (winners != null) {
+      return '$winners beat $losers${score.isEmpty ? '' : ' $score'}$where on Sportify.';
+    }
+    return '$a vs $b${score.isEmpty ? '' : ' $score'}$where on Sportify.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -310,6 +355,19 @@ class _MatchCard extends StatelessWidget {
               const Spacer(),
               if (dateStr != null)
                 Text(dateStr, style: const TextStyle(color: kColorMuted, fontSize: 11)),
+              // Only confirmed results are in this list once completed
+              if (isDone && int.tryParse(match.id) != null)
+                SizedBox(
+                  height: 28,
+                  child: ShareCardButton(
+                    kind: 'match',
+                    source: match.shareSource,
+                    matchId: int.parse(match.id),
+                    message: _shareMessage(),
+                    color: kColorMuted,
+                    size: 16,
+                  ),
+                ),
             ]),
             const SizedBox(height: 12),
 
@@ -339,6 +397,17 @@ class _MatchCard extends StatelessWidget {
               scores: match.scores.map((s) => s.length > 1 ? s[1] : 0).toList(),
               isWinner: w2, isDone: isDone,
             ),
+            if (match.ratingChanges.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: RatingChangeRow(
+                  changes: match.ratingChanges,
+                  ids: [...match.team1Ids, ...match.team2Ids],
+                  names: [...match.team1, ...match.team2],
+                ),
+              ),
+            ],
           ]),
         ),
       ]),

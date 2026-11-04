@@ -1,3 +1,5 @@
+import 'progress_model.dart' show parseRatingChanges;
+
 class ClanMatch {
   final String id;
   final String type;
@@ -11,6 +13,13 @@ class ClanMatch {
   final String? matchDate;
   final String? seriesId;
 
+  /// Glicko-2 rating change per player id, e.g. { uid: 14, uid2: -9 }.
+  /// Empty when the match wasn't rated.
+  final Map<String, int> ratingChanges;
+
+  /// 'clan_singles' | 'clan_doubles', for POST /api/share { kind: 'match' }.
+  final String? source;
+
   ClanMatch({
     required this.id,
     required this.type,
@@ -23,6 +32,8 @@ class ClanMatch {
     this.winner,
     this.matchDate,
     this.seriesId,
+    this.ratingChanges = const {},
+    this.source,
   });
 
   factory ClanMatch.fromJson(Map<String, dynamic> j) {
@@ -87,12 +98,18 @@ class ClanMatch {
       winner: j['winner']?.toString(),
       matchDate: j['matchDate']?.toString() ?? j['match_date']?.toString(),
       seriesId: j['seriesId']?.toString(),
+      ratingChanges: parseRatingChanges(j['ratingChanges']),
+      source: j['source']?.toString(),
     );
   }
 
   bool get isLive     => status == 'live';
   bool get isUpcoming => status == 'upcoming' || status == 'scheduled';
   bool get isComplete => status == 'completed';
+
+  /// Share source for POST /api/share, falling back on the match type.
+  String get shareSource =>
+      source ?? (type == 'doubles' ? 'clan_doubles' : 'clan_singles');
 
   bool get winnerIsTeam1 {
     if (!isComplete || winner == null) return false;

@@ -11,6 +11,8 @@ import 'matches_screen.dart';
 import 'leaderboard_screen.dart';
 import 'series_screen.dart';
 import 'create_tournament_screen.dart';
+import 'bulk_results_screen.dart';
+import 'season_screen.dart';
 
 class ClanDetailScreen extends StatefulWidget {
   final String clanId;
@@ -112,7 +114,7 @@ class _ClanDetailScreenState extends State<ClanDetailScreen>
             child: TabBarView(
               controller: _tabs,
               children: [
-                _OverviewTab(clanId: widget.clanId, isAdmin: _isAdmin),
+                _OverviewTab(clanId: widget.clanId, isAdmin: _isAdmin, clanName: clanName.toString()),
                 _ScheduleTab(clanId: widget.clanId),
                 _AnnouncementsTab(clanId: widget.clanId),
               ],
@@ -317,19 +319,28 @@ class _SubPage extends StatelessWidget {
 class _OverviewTab extends StatelessWidget {
   final String clanId;
   final bool isAdmin;
-  const _OverviewTab({required this.clanId, required this.isAdmin});
+  final String clanName;
+  const _OverviewTab({required this.clanId, required this.isAdmin, required this.clanName});
 
   void _navigate(BuildContext context, String name) {
     late Widget content;
     late String title;
     switch (name) {
+      case 'Record results':
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => BulkResultsScreen(clanId: clanId, clanName: clanName)));
+        return;
+      case 'Season':
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => SeasonScreen(clanId: clanId, clanName: clanName)));
+        return;
       case 'Members':
         title = 'Members';
         content = _MembersTab(clanId: clanId);
         break;
       case 'Matches':
         title = 'Matches';
-        content = MatchesTab(clanId: clanId, isAdmin: isAdmin);
+        content = MatchesTab(clanId: clanId, isAdmin: isAdmin, clanName: clanName);
         break;
       case 'Leaderboard':
         title = 'Leaderboard';
@@ -350,11 +361,17 @@ class _OverviewTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final features = [
+      // Coaches record a whole class's results from courtside
+      if (isAdmin)
+        (Icons.playlist_add_check_rounded, 'Record results', 'Enter a batch of results in one go',
+            const Color(0xFF059669), const Color(0xFF0284C7)),
+      (Icons.calendar_month_rounded, 'Season',    "This month's standing and badges",
+          const Color(0xFFFBBF24), const Color(0xFFEF4444)),
       (Icons.group_rounded,        'Members',     'View and manage clan members',
           const Color(0xFF3B82F6), const Color(0xFF0D9488)),
       (Icons.calendar_month_rounded, 'Matches',   'Schedule and track match history',
           const Color(0xFF10B981), const Color(0xFF0D9488)),
-      (Icons.leaderboard_rounded,  'Leaderboard', 'Rankings and player statistics',
+      (Icons.leaderboard_rounded,  'Leaderboard', 'Ratings, rankings and player statistics',
           const Color(0xFFF59E0B), const Color(0xFFF97316)),
       (Icons.emoji_events_rounded, 'Tournaments', 'Compete in clan tournaments',
           const Color(0xFF8B5CF6), const Color(0xFFEC4899)),
