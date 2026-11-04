@@ -59,8 +59,25 @@ Roles are always read from the database, never taken from the request. The
   admin's own submission is confirmed immediately. Pending items:
   `GET /api/clans/matches/pending?clanId=`.
 - Tournament results are recorded by the host / clan admin, and only once per match.
-- All leaderboard points come from `lib/scoring.ts` (`applyResult`). The points
-  rule is a `ScoringModel`, so it can be replaced (e.g. Glicko-2) in one place.
+- A coach / clan admin / academy owner can record a whole class at once
+  (`POST /api/clans/matches/bulk`); each result is confirmed immediately and
+  audited (`submitted_by`, `resolved_by`, `entry_method = 'bulk'`).
+- All leaderboard points come from `lib/scoring.ts` (`applyResult`), which also
+  updates the Glicko-2 skill ratings (`lib/glicko2.ts`, `lib/ratings.ts`).
+- Ratings can always be rebuilt from match history:
+  `npm run ratings:backfill` (idempotent; deleting a series or tournament does
+  this automatically).
+
+## Habit loop (Phase 2)
+
+- Seasons (`lib/seasons.ts`): calendar months, India time. Standings are
+  computed on read; badges are awarded once when a season is closed.
+- Streaks (`lib/streaks.ts`): consecutive ISO weeks with a confirmed ranked match.
+- Share cards: `POST /api/share` → `/s/<token>`, image at `/api/og/<token>`.
+- Scheduled jobs: `.github/workflows/cron.yml` calls `POST /api/cron/close-seasons`
+  (daily) and `/api/cron/streak-nudges` (Saturday evening IST) with
+  `Authorization: Bearer $CRON_SECRET`. Set `CRON_SECRET` on Netlify and
+  `CRON_SECRET` + `SPORTIFY_URL` as GitHub repository secrets.
 
 ## Tests
 

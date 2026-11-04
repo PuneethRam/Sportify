@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { loadRatingChanges } from "@/lib/ratings";
 
 export async function GET(req: Request) {
   try {
@@ -105,6 +106,10 @@ export async function GET(req: Request) {
        ORDER BY round_number ASC, match_position ASC`,
       [tournamentId]
     ) as RowDataPacket[];
+
+    // Glicko-2 rating change per player for each rated match
+    const changes = await loadRatingChanges("tournament", matches.map(m => Number(m.match_id)));
+    matches.forEach(m => { m.rating_changes = changes.get(Number(m.match_id)) ?? {}; });
 
     // Groups (only relevant for group_knockout)
     const groups = await executeQuery(

@@ -8,7 +8,10 @@ import {
   Users, Trophy, Activity, TrendingUp, User, ArrowLeft,
   CalendarDays, Check, Minus, Clock, ChevronLeft, ChevronRight, Loader2,
   Pin, PinOff, Trash2, Plus, Megaphone, CalendarPlus, ChevronRight as ChevronRightIcon,
+  CalendarRange, ClipboardList,
 } from "lucide-react";
+import RatingLeaderboard from "@/app/components/RatingLeaderboard";
+import SeasonStanding from "@/app/components/SeasonStanding";
 
 type Member = {
   user_id: string; name: string; email: string; role: string;
@@ -38,7 +41,9 @@ function CoachDashboardContent() {
   const batchId = searchParams.get("batchId");
   const batchName = searchParams.get("batchName") || "Batch";
 
-  const [activeTab, setActiveTab] = useState<"overview" | "attendance" | "schedule" | "announcements">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "attendance" | "leaderboard" | "season" | "schedule" | "announcements">("overview");
+  // Coach, batch admin or academy owner (same check as the server's isClanAdmin)
+  const [canRecordResults, setCanRecordResults] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>("");
   const [members, setMembers] = useState<Member[]>([]);
@@ -76,6 +81,12 @@ function CoachDashboardContent() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!batchId) return;
+    fetchWithAuth(`/api/clans/checkadmin?clanId=${batchId}`)
+      .then(r => r.json()).then(d => setCanRecordResults(!!d.isAdmin)).catch(() => {});
+  }, [batchId]);
 
   // Members
   useEffect(() => {
@@ -197,6 +208,8 @@ function CoachDashboardContent() {
   const TABS = [
     { id: "overview" as const,       label: "Overview",      icon: <Activity className="w-3.5 h-3.5" />      },
     { id: "attendance" as const,     label: "Attendance",    icon: <CalendarDays className="w-3.5 h-3.5" />   },
+    { id: "leaderboard" as const,    label: "Leaderboard",   icon: <Trophy className="w-3.5 h-3.5" />         },
+    { id: "season" as const,         label: "Season",        icon: <CalendarRange className="w-3.5 h-3.5" />  },
     { id: "schedule" as const,       label: "Schedule",      icon: <CalendarPlus className="w-3.5 h-3.5" />   },
     { id: "announcements" as const,  label: "Announcements", icon: <Megaphone className="w-3.5 h-3.5" />      },
   ];
@@ -235,6 +248,17 @@ function CoachDashboardContent() {
           {/* ── OVERVIEW TAB ── */}
           {activeTab === "overview" && (
             <div className="space-y-5">
+              {canRecordResults && (
+                <button onClick={() => router.push(`/clan/matches/bulk?clanId=${batchId}`)}
+                  className="w-full flex items-center gap-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3.5 text-white text-left transition-colors">
+                  <ClipboardList className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-bold text-sm">Record results</span>
+                    <span className="block text-xs text-white/75">Enter the class&apos;s matches and save them together</span>
+                  </span>
+                  <ChevronRightIcon className="w-4 h-4 flex-shrink-0" />
+                </button>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
                   { label: "Students",     value: students.length, gradient: "from-blue-500 to-teal-600", icon: <Users className="w-4 h-4 text-white" /> },
@@ -378,6 +402,16 @@ function CoachDashboardContent() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── LEADERBOARD TAB ── */}
+          {activeTab === "leaderboard" && batchId && (
+            <div className="pb-10"><RatingLeaderboard clanId={batchId} /></div>
+          )}
+
+          {/* ── SEASON TAB ── */}
+          {activeTab === "season" && batchId && (
+            <div className="pb-10"><SeasonStanding clanId={batchId} /></div>
           )}
 
           {/* ── SCHEDULE TAB ── */}

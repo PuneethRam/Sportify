@@ -168,7 +168,7 @@ function NavContent() {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAuth = pathname === "/" || pathname === "/auth/login" || pathname === "/auth/signup" || pathname.startsWith("/i/");
+  const isAuth = pathname === "/" || pathname === "/auth/login" || pathname === "/auth/signup" || pathname.startsWith("/i/") || pathname.startsWith("/s/");
 
   if (isAuth) {
     return (

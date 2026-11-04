@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../services/api_service.dart';
+import '../../models/progress_model.dart' show parseRatingChanges;
 import '../../widgets/loading_screen.dart';
+import '../../widgets/rating_widgets.dart';
+import '../../widgets/share_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Score helpers
@@ -175,6 +178,32 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       if (tid == target) return t;
     }
     return null;
+  }
+
+  /// Rating chips for a played match: (ids, names) of the players with a
+  /// rating change, team 1 first.
+  ({List<String> ids, List<String> names}) _ratedPlayers(
+      Map<String, dynamic> match, Map<String, int> changes) {
+    final ids = <String>[];
+    final names = <String>[];
+    for (final team in [_teamById(match['team1_id']), _teamById(match['team2_id'])]) {
+      for (final p in List<Map>.from(team?['playersDetails'] ?? const [])) {
+        final id = p['user_id']?.toString();
+        if (id == null || !changes.containsKey(id) || ids.contains(id)) continue;
+        ids.add(id);
+        names.add(p['name']?.toString() ?? 'Player');
+      }
+    }
+    return (ids: ids, names: names);
+  }
+
+  String _shareMessage(String t1, String t2, bool t1Win, bool t2Win, String score) {
+    final name = (_tournament?['tournament_name']?.toString() ?? widget.tournamentName).trim();
+    final where = name.isEmpty ? '' : ' in $name';
+    final s = score.isEmpty ? '' : ' ($score)';
+    if (t1Win) return '$t1 beat $t2$s$where on Sportify.';
+    if (t2Win) return '$t2 beat $t1$s$where on Sportify.';
+    return '$t1 vs $t2$s$where on Sportify.';
   }
 
   Map<int, List<Map<String, dynamic>>> _buildRoundsMap(
@@ -760,6 +789,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final scoreStr = _scoreDisplay(match['score_details']?.toString());
     final isLocked = mId != null && locked.contains(mId);
     final canEdit = widget.isAdmin && _isOngoing && !isLocked;
+    final changes = parseRatingChanges(match['rating_changes']);
+    final rated = _ratedPlayers(match, changes);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -797,12 +828,32 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               ]),
             ),
             _buildTeamRow(name: t2Name, isWinner: t2Win, gamesWon: done ? wins['team2'] : null),
+            if (done && rated.ids.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: RatingChangeRow(changes: changes, ids: rated.ids, names: rated.names),
+              ),
+            ],
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Text(
                 scoreStr.isNotEmpty ? scoreStr : 'Not played yet',
                 style: TextStyle(color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.5), fontSize: 11),
               )),
+              // A recorded tournament result counts as confirmed
+              if (done && mId != null)
+                SizedBox(
+                  height: 28,
+                  child: ShareCardButton(
+                    kind: 'match',
+                    source: 'tournament',
+                    matchId: mId,
+                    message: _shareMessage(t1Name, t2Name, t1Win, t2Win, scoreStr.replaceAll('  ·  ', ', ')),
+                    color: kColorMuted,
+                    size: 16,
+                  ),
+                ),
               if (isLocked)
                 Row(mainAxisSize: MainAxisSize.min, children: const [
                   Icon(Icons.lock_outline_rounded, size: 13, color: kColorMuted),

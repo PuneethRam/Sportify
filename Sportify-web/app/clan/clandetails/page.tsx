@@ -3,13 +3,14 @@
 import { useEffect, useState, useCallback, Suspense } from "react";
 import {
   Users, Trophy, Calendar, Medal, TrendingUp, LogOut, ChevronRight,
-  Bell, Pin, Loader2,
+  Bell, Pin, Loader2, CalendarRange, ClipboardList,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import ShareInviteButton from "@/app/components/ShareInviteButton";
+import SeasonStanding from "@/app/components/SeasonStanding";
 
 const features = [
   {
@@ -71,7 +72,7 @@ type Session = {
   notes: string | null;
 };
 
-type ClanTab = "overview" | "schedule" | "announcements";
+type ClanTab = "overview" | "season" | "schedule" | "announcements";
 
 type Announcement = {
   announcement_id: number;
@@ -237,29 +238,44 @@ function ClanDetailsContent() {
         </div>
       </div>
 
-      {/* ── Tabs (batch only) ── */}
-      {isBatch && (
-        <div className="flex gap-1 p-1 bg-slate-100 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/8">
-          {([
-            { id: "overview" as ClanTab,       label: "Overview",       icon: ChevronRight },
+      {/* ── Tabs (schedule / announcements for batches only) ── */}
+      <div className="flex gap-1 p-1 bg-slate-100 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/8 overflow-x-auto scrollbar-none">
+        {([
+          { id: "overview" as ClanTab,       label: "Overview",       icon: ChevronRight  },
+          { id: "season" as ClanTab,         label: "Season",         icon: CalendarRange },
+          ...(isBatch ? [
             { id: "schedule" as ClanTab,       label: "Schedule",       icon: Calendar     },
             { id: "announcements" as ClanTab,  label: "Announcements",  icon: Bell         },
-          ]).map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setTab(id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                tab === id
-                  ? "bg-emerald-500 text-white shadow"
-                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-              }`}>
-              <Icon className="w-3.5 h-3.5" />{label}
-            </button>
-          ))}
-        </div>
-      )}
+          ] : []),
+        ]).map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`flex-1 flex-shrink-0 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              tab === id
+                ? "bg-emerald-500 text-white shadow"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            }`}>
+            <Icon className="w-3.5 h-3.5" />{label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Season ── */}
+      {tab === "season" && clanId && <SeasonStanding clanId={clanId} />}
 
       {/* ── Overview / Quick Access ── */}
-      {(!isBatch || tab === "overview") && (
+      {tab === "overview" && (
         <div>
+          {isAdmin && (
+            <Link href={`/clan/matches/bulk?clanId=${clanId}`}
+              className="mb-4 flex items-center gap-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3.5 text-white no-underline transition-colors">
+              <ClipboardList className="w-5 h-5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm">Record results</p>
+                <p className="text-xs text-white/75">Enter a whole class&apos;s matches at once</p>
+              </div>
+              <ChevronRight className="w-4 h-4 flex-shrink-0" />
+            </Link>
+          )}
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3 px-0.5">Quick Access</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {features.map(f => (

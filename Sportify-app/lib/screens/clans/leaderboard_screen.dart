@@ -4,6 +4,22 @@ import '../../core/theme.dart';
 import '../../models/clan_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
+import '../../widgets/rating_widgets.dart';
+
+/// Leaderboard tabs: Glicko-2 rating per format, plus the legacy clan points.
+const _modes = ['singles', 'doubles', 'points'];
+
+/// Orders members for a tab. Rating tabs: rated players by rating (highest
+/// first), then provisional players, as the server ranks them.
+List<ClanMember> rankMembers(List<ClanMember> members, String mode) {
+  final list = [...members];
+  if (mode == 'points') {
+    list.sort((a, b) => b.clanPoints.compareTo(a.clanPoints));
+  } else {
+    list.sort((a, b) => ClanMember.compareByRating(a, b, mode));
+  }
+  return list;
+}
 
 class LeaderboardTab extends StatefulWidget {
   final String clanId;
@@ -26,7 +42,7 @@ class _LeaderboardTabState extends State<LeaderboardTab>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: _modes.length, vsync: this);
     _load();
   }
 
@@ -36,33 +52,21 @@ class _LeaderboardTabState extends State<LeaderboardTab>
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool fresh = false}) async {
     try {
       final data = await ApiService.instance.get(
         '/api/clans/leaderboard',
         query: {'clanId': widget.clanId},
+        cached: !fresh,
       );
+      if (!mounted) return;
       setState(() {
         _members = (data['data'] as List? ?? [])
             .map((e) => ClanMember.fromJson(e as Map<String, dynamic>)).toList();
         _loading = false;
       });
     } catch (_) {
-      setState(() => _loading = false);
-    }
-  }
-
-  List<ClanMember> _sorted(int tabIdx) {
-    final filtered = _search.isEmpty
-        ? _members
-        : _members.where(
-            (m) => m.name.toLowerCase().contains(_search.toLowerCase())).toList();
-    if (tabIdx == 0) {
-      return [...filtered]..sort((a, b) => b.clanPoints.compareTo(a.clanPoints));
-    } else if (tabIdx == 1) {
-      return [...filtered]..sort((a, b) => b.singlesPoints.compareTo(a.singlesPoints));
-    } else {
-      return [...filtered]..sort((a, b) => b.doublesPoints.compareTo(a.doublesPoints));
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -74,7 +78,7 @@ class _LeaderboardTabState extends State<LeaderboardTab>
     return Column(children: [
       TabBar(
         controller: _tabs,
-        tabs: const [Tab(text: 'Overall'), Tab(text: 'Singles'), Tab(text: 'Doubles')],
+        tabs: const [Tab(text: 'Singles'), Tab(text: 'Doubles'), Tab(text: 'Points')],
       ),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -90,29 +94,61 @@ class _LeaderboardTabState extends State<LeaderboardTab>
       Expanded(
         child: TabBarView(
           controller: _tabs,
-          children: List.generate(3, (tabIdx) {
-            final list = _sorted(tabIdx);
-            if (list.isEmpty) return const EmptyView(message: 'No data');
-            final showPodium = tabIdx == 0 && _search.isEmpty && list.length >= 3;
-            final extraItems = showPodium ? 1 : 0;
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: list.length + extraItems,
-              itemBuilder: (_, i) {
-                if (showPodium && i == 0) {
-                  return _Podium(
-                    members: list.take(3).toList(),
-                    tabIdx: tabIdx,
-                    clanId: widget.clanId,
-                  );
-                }
-                final realIdx = i - extraItems;
-                return _MemberRow(
-                  member: list[realIdx], rank: realIdx + 1, tabIdx: tabIdx,
-                  clanId: widget.clanId);
-              },
+          children: _modes.map((mode) {
+            // Rank over everyone, then filter, so ranks don't shift while searching
+            final ranked = rankMembers(_members, mode);
+            final q = _search.toLowerCase();
+            final rows = <({ClanMember member, int rank})>[
+              for (var i = 0; i < ranked.length; i++)
+                if (q.isEmpty || ranked[i].name.toLowerCase().contains(q))
+                  (member: ranked[i], rank: i + 1),
+            ];
+            if (rows.isEmpty) return const EmptyView(message: 'No data');
+
+            final isRating = mode != 'points';
+            final rated = isRating
+                ? rows.where((r) => !r.member.provisionalFor(mode)).toList()
+                : rows;
+            final provisional = isRating
+                ? rows.where((r) => r.member.provisionalFor(mode)).toList()
+                : const <({ClanMember member, int rank})>[];
+            final podium = q.isEmpty && rated.length >= 3;
+            final body = podium ? rated.skip(3).toList() : rated;
+
+            return RefreshIndicator(
+              onRefresh: () => _load(fresh: true),
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (podium)
+                    _Podium(
+                      members: rated.take(3).map((r) => r.member).toList(),
+                      mode: mode,
+                      clanId: widget.clanId,
+                    ),
+                  if (isRating && rated.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'No one has a settled rating yet. Ratings appear after a few matches.',
+                        style: TextStyle(color: kColorMuted, fontSize: 12)),
+                    ),
+                  for (final r in body)
+                    _MemberRow(member: r.member, rank: r.rank, mode: mode, clanId: widget.clanId),
+                  if (provisional.isNotEmpty) ...[
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(4, 12, 4, 8),
+                      child: Text('PROVISIONAL · STILL SETTLING IN',
+                        style: TextStyle(color: kColorMuted, fontSize: 10,
+                          fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+                    ),
+                    for (final r in provisional)
+                      _MemberRow(member: r.member, rank: r.rank, mode: mode, clanId: widget.clanId),
+                  ],
+                ],
+              ),
             );
-          }),
+          }).toList(),
         ),
       ),
     ]);
@@ -121,9 +157,9 @@ class _LeaderboardTabState extends State<LeaderboardTab>
 
 class _Podium extends StatelessWidget {
   final List<ClanMember> members;
-  final int tabIdx;
+  final String mode;
   final String clanId;
-  const _Podium({required this.members, required this.tabIdx, required this.clanId});
+  const _Podium({required this.members, required this.mode, required this.clanId});
 
   static const _colors = [
     Color(0xFFB0BEC5), // silver (#2)
@@ -171,8 +207,9 @@ class _Podium extends StatelessWidget {
             final color = _colors[i];
             final pedHeight = _heights[i];
             final isChamp = rank == 1;
-            final pts = tabIdx == 0 ? member.clanPoints
-                : tabIdx == 1 ? member.singlesPoints : member.doublesPoints;
+            final value = mode == 'points'
+                ? '${member.clanPoints} pts'
+                : '${member.ratingFor(mode) ?? '-'}';
             final initials = member.name.isNotEmpty
                 ? member.name[0].toUpperCase() : '?';
 
@@ -232,7 +269,7 @@ class _Podium extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 2),
-                  Text('$pts pts', style: TextStyle(
+                  Text(value, style: TextStyle(
                     color: color,
                     fontSize: isChamp ? 12.0 : 10.0,
                     fontWeight: FontWeight.w800)),
@@ -259,12 +296,12 @@ class _Podium extends StatelessWidget {
 class _MemberRow extends StatelessWidget {
   final ClanMember member;
   final int rank;
-  final int tabIdx;
+  final String mode;
   final String clanId;
 
   const _MemberRow({
     required this.member, required this.rank,
-    required this.tabIdx, required this.clanId,
+    required this.mode, required this.clanId,
   });
 
   static const _rankColors = [
@@ -275,19 +312,18 @@ class _MemberRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pts = tabIdx == 0
-        ? member.clanPoints
-        : tabIdx == 1 ? member.singlesPoints : member.doublesPoints;
-
-    final played = tabIdx == 0
+    final isRating = mode != 'points';
+    final played = mode == 'points'
         ? member.matchesPlayed
-        : tabIdx == 1 ? member.singlesPlayed : member.doublesPlayed;
-    final won = tabIdx == 0
+        : mode == 'singles' ? member.singlesPlayed : member.doublesPlayed;
+    final won = mode == 'points'
         ? member.matchesWon
-        : tabIdx == 1 ? member.singlesWon : member.doublesWon;
+        : mode == 'singles' ? member.singlesWon : member.doublesWon;
     final winRate = played > 0 ? won / played : 0.0;
+    final provisional = isRating && member.provisionalFor(mode);
 
-    final isTop3 = rank <= 3;
+    // Provisional players aren't medalled
+    final isTop3 = rank <= 3 && !provisional;
     final rankColor = isTop3 ? _rankColors[rank - 1] : kColorMuted;
 
     Widget badge;
@@ -376,13 +412,25 @@ class _MemberRow extends StatelessWidget {
             ],
           )),
           const SizedBox(width: 12),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('$pts', style: TextStyle(
-              color: isTop3 ? rankColor : kColorAmber,
-              fontWeight: FontWeight.w900, fontSize: 20)),
-            const Text('pts', style: TextStyle(
-              color: kColorMuted, fontSize: 10, fontWeight: FontWeight.w600)),
-          ]),
+          if (isRating)
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              RatingLabel(
+                rating: member.ratingFor(mode),
+                provisional: provisional,
+                color: isTop3 ? rankColor : kColorPrimary,
+              ),
+              if (!provisional)
+                const Text('rating', style: TextStyle(
+                  color: kColorMuted, fontSize: 10, fontWeight: FontWeight.w600)),
+            ])
+          else
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('${member.clanPoints}', style: TextStyle(
+                color: isTop3 ? rankColor : kColorAmber,
+                fontWeight: FontWeight.w900, fontSize: 20)),
+              const Text('pts', style: TextStyle(
+                color: kColorMuted, fontSize: 10, fontWeight: FontWeight.w600)),
+            ]),
         ]),
       ),
     );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executeQuery } from "@/lib/db";
 import { RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { compareByRating, loadRatings, RatingFormat } from "@/lib/ratings";
 
 export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
@@ -14,6 +15,8 @@ export async function GET(req: Request) {
     if (!clanId) {
       return NextResponse.json({ error: "clanId is required" }, { status: 400 });
     }
+    // Which Glicko-2 rating to rank by: ?format=singles (default) or doubles
+    const format: RatingFormat = searchParams.get("format") === "doubles" ? "doubles" : "singles";
 
     // Try the full query with singles_points / doubles_points columns.
     // If those columns don't exist yet (migration not run), fall back to the
@@ -86,7 +89,30 @@ export async function GET(req: Request) {
       void colErr; // suppress unused-var warning
     }
 
-    return NextResponse.json(rows, { status: 200 });
+    // Rank by rating: rated players first (highest rating first), then
+    // provisional players. Each row keeps both formats' ratings.
+    const ratings = await loadRatings(rows.map(r => r.user_id));
+    const ranked = rows
+      .map(r => {
+        const own = ratings.get(r.user_id)!;
+        return {
+          ...r,
+          user_id: r.user_id as string,
+          singles_rating: own.singles.rating,
+          singles_provisional: own.singles.provisional,
+          singles_rated_matches: own.singles.matches,
+          doubles_rating: own.doubles.rating,
+          doubles_provisional: own.doubles.provisional,
+          doubles_rated_matches: own.doubles.matches,
+          rating: own[format].rating,
+          provisional: own[format].provisional,
+          rating_format: format,
+        };
+      })
+      .sort((a, b) => compareByRating(ratings.get(a.user_id)![format], ratings.get(b.user_id)![format]))
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+
+    return NextResponse.json(ranked, { status: 200 });
   } catch (error) {
     console.error("Leaderboard fetch error:", error);
     return NextResponse.json(

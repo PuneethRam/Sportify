@@ -1,0 +1,33 @@
+name: Scheduled jobs
+
+# Calls /api/cron/<job> on the live site. Needs two repository secrets:
+#   SPORTIFY_URL  e.g. https://sportifyweb.netlify.app
+#   CRON_SECRET   the same value as the CRON_SECRET env var on Netlify
+on:
+  schedule:
+    # 00:05 India time every day: close last month's seasons (no-op on other days)
+    - cron: "35 18 * * *"
+    # Saturday 18:30 India time: streak_at_risk nudges
+    - cron: "0 13 * * 6"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job to run
+        type: choice
+        options: [close-seasons, streak-nudges]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    if: ${{ vars.CRON_ENABLED != 'false' }}
+    steps:
+      - name: Call the job
+        env:
+          SPORTIFY_URL: ${{ secrets.SPORTIFY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          JOB: ${{ inputs.job || (github.event.schedule == '0 13 * * 6' && 'streak-nudges' || 'close-seasons') }}
+        run: |
+          if [ -z "$SPORTIFY_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "SPORTIFY_URL / CRON_SECRET secrets are not set; skipping."; exit 0
+          fi
+          curl --fail-with-body -sS -X POST -H "Authorization: Bearer $CRON_SECRET" "${SPORTIFY_URL%/}/api/cron/$JOB"

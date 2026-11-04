@@ -9,6 +9,7 @@ import {
 import ProtectedRoute from "../components/ProtectedRoute";
 import { auth } from "@/lib/firebase";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import PlayerProgress from "@/app/components/PlayerProgress";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -411,6 +412,9 @@ function PlayerDashboard({ userData, globalTournaments, selectedClan, setSelecte
           </div>
         </div>
       </div>
+
+      {/* Weekly streak, ratings, ranks, badges, share */}
+      <PlayerProgress userId={userData.user_id} clanId={selectedClan} />
 
       {/* Global Performance */}
       <div className="sport-card overflow-hidden">

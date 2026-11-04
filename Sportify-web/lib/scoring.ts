@@ -1,11 +1,15 @@
 import type { Connection } from "mysql2/promise";
+import { MatchSource, rateConfirmedMatch } from "@/lib/ratings";
 
 /**
  * The one place clan leaderboard points are calculated and applied.
  *
  * Clan matches (on confirmation) and tournament matches both go through
- * applyResult(). The points rule is a ScoringModel so it can be replaced
- * (Glicko-2 is planned for Phase 2) without touching the routes.
+ * applyResult(), which updates two things:
+ *   - ClanLeaderboard points (the ScoringModel below; also used for season
+ *     standings in lib/seasons.ts);
+ *   - the players' Glicko-2 skill ratings (lib/ratings.ts), when the caller
+ *     says which stored match this is (`match`).
  */
 
 export type Side = "team1" | "team2";
@@ -20,6 +24,15 @@ export interface MatchResult {
   score: string;
   /** Set when the winner is declared separately (tournaments); otherwise derived from the score. */
   winner?: Side | null;
+  /** The stored match row, so the result can be rated. Omit to update points only. */
+  match?: { source: MatchSource; matchId: number; playedAt: Date };
+}
+
+export interface AppliedResult {
+  /** Points the winners gained and the losers lost (0 for a draw). */
+  points: number;
+  /** Rating change per player, unrounded. Empty if the match wasn't rated. */
+  ratingChanges: Record<string, number>;
 }
 
 /** Points every new clan / batch member starts on. */
@@ -79,11 +92,22 @@ type Db = Pick<Connection, "execute">;
 /**
  * Applies a confirmed result to ClanLeaderboard. Call inside the same
  * transaction that marks the match confirmed so a result is counted once.
- * Returns the points awarded (0 for a draw).
  */
-export async function applyResult(db: Db, result: MatchResult, model: ScoringModel = scoring): Promise<number> {
+export async function applyResult(db: Db, result: MatchResult, model: ScoringModel = scoring): Promise<AppliedResult> {
   const winner = result.winner !== undefined ? result.winner : determineWinner(result.score);
   const players = [...result.team1, ...result.team2].filter(Boolean);
+  const ratingChanges = result.match
+    ? await rateConfirmedMatch(db, {
+        source: result.match.source,
+        matchId: result.match.matchId,
+        clanId: Number(result.clanId),
+        format: result.format,
+        team1: result.team1.filter(Boolean),
+        team2: result.team2.filter(Boolean),
+        winner,
+        playedAt: result.match.playedAt,
+      })
+    : {};
 
   if (!winner) {
     for (const userId of players) {
@@ -94,7 +118,7 @@ export async function applyResult(db: Db, result: MatchResult, model: ScoringMod
         [result.clanId, userId]
       );
     }
-    return 0;
+    return { points: 0, ratingChanges };
   }
 
   const points = model.pointsFor(result, winner);
@@ -126,5 +150,5 @@ export async function applyResult(db: Db, result: MatchResult, model: ScoringMod
       [points, points, result.clanId, userId]
     );
   }
-  return points;
+  return { points, ratingChanges };
 }

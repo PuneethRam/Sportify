@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "node db/migrate.mjs",
-    "db:status": "node db/migrate.mjs --status"
+    "db:status": "node db/migrate.mjs --status",
+    "ratings:backfill": "vite-node --config vitest.config.mts scripts/backfill-ratings.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^11.10.0",

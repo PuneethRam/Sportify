@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ success: true, preferences: await load(uid) });
 }
 
-// PUT /api/notifications/preferences  { results?: bool, sessions?: bool, announcements?: bool, invites?: bool }
+// PUT /api/notifications/preferences  { results?, sessions?, announcements?, invites?, streaks?, seasons?: bool }
 export async function PUT(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();

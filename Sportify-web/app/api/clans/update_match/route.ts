@@ -1,10 +1,11 @@
 import { createConnection } from '@/lib/db';
 import { NextResponse } from "next/server";
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { RowDataPacket } from 'mysql2';
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { areClanMembers, forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
-import { determineWinner, parseGames } from "@/lib/scoring";
-import { finalizeSubmission, loadSubmission } from "@/lib/matchSubmissions";
+import { determineWinner } from "@/lib/scoring";
+import { finalizeSubmission, insertSubmission, loadSubmission, parseMatchEntry } from "@/lib/matchSubmissions";
+import { notifyOvertakes } from "@/lib/seasons";
 import { notifyResultConfirmed, notifyResultSubmitted } from "@/lib/resultNotifications";
 
 // POST: submit a clan match result.
@@ -16,36 +17,13 @@ export async function POST(req: Request) {
   if (!uid) return unauthorized();
 
   const data = await req.json();
-  const { matchType, clanId, scoreDetails } = data;
-
-  if (!matchType || !clanId || !scoreDetails) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-  }
-
+  const { clanId } = data;
+  if (!clanId) return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  const entry = parseMatchEntry(data);
+  if (typeof entry === "string") return NextResponse.json({ error: entry }, { status: 400 });
+  const { matchType, team1, team2, scoreDetails } = entry;
   const score = scoreDetails.score;
-  if (!score || !parseGames(score).length) {
-    return NextResponse.json({ error: "Score is required, e.g. \"21-15, 21-18\"" }, { status: 400 });
-  }
-
-  let team1: string[];
-  let team2: string[];
-  if (matchType === "singles") {
-    team1 = [data.player1];
-    team2 = [data.player2];
-  } else if (matchType === "doubles") {
-    team1 = [data.team1Player1, data.team1Player2];
-    team2 = [data.team2Player1, data.team2Player2];
-  } else {
-    return NextResponse.json({ error: "Invalid match type" }, { status: 400 });
-  }
-
   const players = [...team1, ...team2];
-  if (players.some(p => !p || typeof p !== "string")) {
-    return NextResponse.json({ error: "Missing player information" }, { status: 400 });
-  }
-  if (new Set(players).size !== players.length) {
-    return NextResponse.json({ error: "A player can only appear once in a match" }, { status: 400 });
-  }
 
   const admin = await isClanAdmin(uid, clanId);
   if (!admin && (!players.includes(uid) || !(await isClanMember(uid, clanId)))) {
@@ -76,33 +54,32 @@ export async function POST(req: Request) {
     await connection.beginTransaction();
 
     try {
-      const [ins] = await connection.execute<ResultSetHeader>(
-        `INSERT INTO MatchSubmissions
-         (clan_id, match_type, series_id, team1_player1, team1_player2, team2_player1, team2_player2,
-          score_details, winner, submitted_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [clanId, matchType, series_id, team1[0], team1[1] ?? null, team2[0], team2[1] ?? null,
-         JSON.stringify(scoreDetails), winner, uid]
-      );
+      const submissionId = await insertSubmission(connection, clanId, entry, uid, {
+        seriesId: series_id, entryMethod: admin ? "admin" : "player",
+      });
 
       let status = "pending";
       let matchId: number | null = null;
       let pointsAwarded = 0;
+      let ratingChanges: Record<string, number> = {};
 
       if (admin) {
-        const submission = await loadSubmission(connection, ins.insertId);
+        const submission = await loadSubmission(connection, submissionId);
         const result = await finalizeSubmission(connection, submission!, uid);
         status = "confirmed";
         matchId = result.matchId;
         pointsAwarded = result.points;
+        ratingChanges = Object.fromEntries(Object.entries(result.ratingChanges).map(([u, d]) => [u, Math.round(d)]));
       }
 
       await connection.commit();
 
-      const submission = await loadSubmission(connection, ins.insertId);
+      const submission = await loadSubmission(connection, submissionId);
       if (submission) {
-        if (status === "confirmed") await notifyResultConfirmed(submission, uid);
-        else await notifyResultSubmitted(submission);
+        if (status === "confirmed") {
+          await notifyResultConfirmed(submission, uid);
+          await notifyOvertakes(clanId, [{ source: matchType === "singles" ? "clan_singles" : "clan_doubles", matchId: matchId! }]);
+        } else await notifyResultSubmitted(submission);
       }
 
       return NextResponse.json({
@@ -111,11 +88,12 @@ export async function POST(req: Request) {
           ? "Match recorded and leaderboard updated"
           : "Result submitted — waiting for the other side to confirm",
         status,
-        submissionId: ins.insertId,
+        submissionId: submissionId,
         matchId,
         // "player1" / "player2" (team1 / team2) for compatibility with existing clients
         winner: winner === "team1" ? "player1" : winner === "team2" ? "player2" : null,
         pointsAwarded,
+        ratingChanges,
       }, { status: 201 });
 
     } catch (err) {

@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme.dart';
+import '../../models/progress_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/loading_screen.dart';
+import '../../widgets/rating_widgets.dart';
+import '../../widgets/share_card.dart';
 
 // ── Data model ───────────────────────────────────────────────────────────────
 
@@ -100,6 +105,7 @@ class PlayerProfileScreen extends StatefulWidget {
 
 class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   _Profile? _profile;
+  PlayerProgress? _progress;
   bool _loading = true;
   String? _error;
 
@@ -109,21 +115,43 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
     _load();
   }
 
+  /// Ratings, weekly streak, badges and clan ranks. Optional: the profile
+  /// still shows if this fails (e.g. an older backend).
+  Future<void> _loadProgress() async {
+    try {
+      final data = await ApiService.instance.getProgress(userId: widget.userId);
+      if (mounted) setState(() => _progress = PlayerProgress.fromJson(data));
+    } catch (_) {}
+  }
+
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
+    _loadProgress();
     try {
       final data = await ApiService.instance.get(
         '/api/dashboard/userProfile',
         query: {'userId': widget.userId},
         cached: false,
       );
+      if (!mounted) return;
       setState(() {
         _profile = _Profile.fromJson(data);
         _loading = false;
       });
     } catch (e) {
-      setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
+  }
+
+  String _shareMessage() {
+    final p = _progress;
+    if (p == null) return 'My Sportify profile.';
+    final r = p.ratings.of(p.format);
+    final parts = <String>[
+      if (!r.provisional) '${p.format == 'doubles' ? 'Doubles' : 'Singles'} rating ${r.rating}',
+      if (p.streak.current > 1) '${p.streak.current}-week streak',
+    ];
+    return parts.isEmpty ? 'My Sportify profile.' : 'My Sportify profile: ${parts.join(', ')}.';
   }
 
   @override
@@ -142,6 +170,17 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           style: const TextStyle(
             color: kColorText, fontWeight: FontWeight.w800, fontSize: 18),
         ),
+        actions: [
+          // Players can only share their own profile card
+          if (context.watch<AuthProvider>().uid == widget.userId && _profile != null)
+            ShareCardButton(
+              kind: 'profile',
+              clanId: int.tryParse(widget.clanId),
+              message: _shareMessage(),
+              color: kColorText,
+              size: 20,
+            ),
+        ],
       ),
       body: _loading
           ? const CenteredLoader()
@@ -149,7 +188,11 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               ? ErrorView(message: _error!, onRetry: _load)
               : _profile == null
                   ? const ErrorView(message: 'Profile not found')
-                  : _Body(profile: _profile!, clanId: widget.clanId),
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: _Body(
+                          profile: _profile!, progress: _progress, clanId: widget.clanId),
+                    ),
     );
   }
 }
@@ -158,8 +201,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
 
 class _Body extends StatelessWidget {
   final _Profile profile;
+  final PlayerProgress? progress;
   final String clanId;
-  const _Body({required this.profile, required this.clanId});
+  const _Body({required this.profile, required this.progress, required this.clanId});
 
   @override
   Widget build(BuildContext context) {
@@ -184,8 +228,23 @@ class _Body extends StatelessWidget {
           clanName: clanName,
           totalPlayed: totalPlayed,
           overallPct: overallPct,
+          weeklyStreak: progress?.streak.current,
         ),
         const SizedBox(height: 10),
+        if (progress != null) ...[
+          _RatingsCard(progress: progress!),
+          const SizedBox(height: 10),
+          _WeeklyStreakCard(streak: progress!.streak),
+          const SizedBox(height: 10),
+          if (progress!.clans.isNotEmpty) ...[
+            _ClanRanksCard(progress: progress!),
+            const SizedBox(height: 10),
+          ],
+          if (progress!.badges.isNotEmpty) ...[
+            _BadgesCard(badges: progress!.badges),
+            const SizedBox(height: 10),
+          ],
+        ],
         if (totalPlayed > 0) ...[
           _WLBar(totalWon: totalWon, totalLost: totalLost),
           const SizedBox(height: 10),
@@ -209,7 +268,8 @@ class _Body extends StatelessWidget {
             won: profile.doublesWon,
           )),
         ]),
-        if (profile.bestStreak > 1) ...[
+        // Win streak (from match history) only when weekly streaks aren't available
+        if (progress == null && profile.bestStreak > 1) ...[
           const SizedBox(height: 10),
           _StreakCard(current: profile.currentStreak, best: profile.bestStreak),
         ],
@@ -245,12 +305,14 @@ class _HeroBanner extends StatelessWidget {
   final String? clanName;
   final int totalPlayed;
   final int overallPct;
+  final int? weeklyStreak;
 
   const _HeroBanner({
     required this.profile,
     this.clanName,
     required this.totalPlayed,
     required this.overallPct,
+    this.weeklyStreak,
   });
 
   @override
@@ -371,12 +433,14 @@ class _HeroBanner extends StatelessWidget {
                   label: 'WIN RATE', value: '$overallPct%')),
                 Container(width: 1, height: 36,
                   color: Colors.white.withOpacity(0.12)),
-                Expanded(child: _StatCell(
-                  label: 'STREAK',
-                  value: profile.currentStreak > 0
-                      ? '${profile.currentStreak}x'
-                      : profile.currentStreak.toString(),
-                )),
+                Expanded(child: weeklyStreak != null
+                    ? _StatCell(label: 'WEEK STREAK', value: '$weeklyStreak')
+                    : _StatCell(
+                        label: 'STREAK',
+                        value: profile.currentStreak > 0
+                            ? '${profile.currentStreak}x'
+                            : profile.currentStreak.toString(),
+                      )),
               ]),
             ),
           ]),
@@ -861,4 +925,199 @@ class _MatchRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Phase 2: ratings, weekly streak, clan ranks, badges ─────────────────────
+
+const _cardDecoration = BoxDecoration(
+  color: kColorSurface,
+  borderRadius: BorderRadius.all(Radius.circular(16)),
+  boxShadow: [
+    BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
+    BoxShadow(color: Color(0x04000000), blurRadius: 2),
+  ],
+);
+
+class _CardLabel extends StatelessWidget {
+  final String text;
+  final IconData icon;
+  final Color color;
+  const _CardLabel(this.text, this.icon, this.color);
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Icon(icon, size: 14, color: color),
+    const SizedBox(width: 6),
+    Text(text, style: TextStyle(
+      color: color, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+  ]);
+}
+
+class _RatingsCard extends StatelessWidget {
+  final PlayerProgress progress;
+  const _RatingsCard({required this.progress});
+
+  Widget _cell(String label, PublicRating r, bool primary) => Expanded(
+    child: Column(children: [
+      Text(label.toUpperCase(), style: TextStyle(
+        color: primary ? kColorPrimary : kColorMuted,
+        fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+      const SizedBox(height: 8),
+      SizedBox(
+        height: 32,
+        child: Center(child: RatingLabel(
+          rating: r.rating, provisional: r.provisional, fontSize: 26,
+          color: primary ? kColorPrimary : kColorText)),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        r.provisional
+            ? (r.matches == 0 ? 'No rated matches yet' : '${r.matches} rated so far')
+            : '${r.matches} rated matches',
+        style: const TextStyle(color: kColorMuted, fontSize: 11)),
+    ]),
+  );
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: _cardDecoration,
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const _CardLabel('RATING', Icons.insights_rounded, kColorPrimary),
+      const SizedBox(height: 12),
+      Row(children: [
+        _cell('Singles', progress.ratings.singles, progress.format == 'singles'),
+        Container(width: 1, height: 56, color: const Color(0x14000000)),
+        _cell('Doubles', progress.ratings.doubles, progress.format == 'doubles'),
+      ]),
+    ]),
+  );
+}
+
+class _WeeklyStreakCard extends StatelessWidget {
+  final Streak streak;
+  const _WeeklyStreakCard({required this.streak});
+
+  @override
+  Widget build(BuildContext context) {
+    final on = streak.current > 0;
+    const fire = Color(0xFFF97316);
+    final status = !on
+        ? 'Play a match this week to start a streak'
+        : streak.playedThisWeek
+            ? 'Played this week'
+            : 'Play before Sunday night to keep it going';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _cardDecoration,
+      child: Row(children: [
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(
+            color: fire.withValues(alpha: on ? 0.18 : 0.08),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          alignment: Alignment.center,
+          child: Icon(Icons.local_fire_department_rounded,
+              color: on ? fire : kColorMuted, size: 26),
+        ),
+        const SizedBox(width: 14),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('WEEKLY STREAK', style: TextStyle(
+            color: kColorMuted, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+          const SizedBox(height: 4),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('${streak.current}', style: const TextStyle(
+              color: kColorText, fontSize: 26, fontWeight: FontWeight.w900, height: 1)),
+            const SizedBox(width: 4),
+            Text(streak.current == 1 ? 'week' : 'weeks',
+              style: const TextStyle(color: kColorMuted, fontSize: 12)),
+            const SizedBox(width: 12),
+            Text('Best ${streak.best}', style: const TextStyle(
+              color: fire, fontSize: 12, fontWeight: FontWeight.w800)),
+          ]),
+          const SizedBox(height: 4),
+          Text(status, style: TextStyle(
+            color: streak.atRisk ? kColorRose : kColorMuted, fontSize: 11,
+            fontWeight: streak.atRisk ? FontWeight.w700 : FontWeight.w400)),
+        ])),
+      ]),
+    );
+  }
+}
+
+class _ClanRanksCard extends StatelessWidget {
+  final PlayerProgress progress;
+  const _ClanRanksCard({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = progress.format == 'doubles' ? 'doubles' : 'singles';
+    final provisional = progress.ratings.of(progress.format).provisional;
+    final month = seasonDisplayName(progress.season).split(' ').first;
+    return Container(
+      decoration: _cardDecoration,
+      clipBehavior: Clip.hardEdge,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(14, 14, 14, 6),
+          child: _CardLabel('RANK IN EACH CLAN', Icons.leaderboard_rounded, kColorAmber),
+        ),
+        for (final c in progress.clans)
+          InkWell(
+            onTap: () => context.push('/clans/${c.clanId}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(c.name, overflow: TextOverflow.ellipsis, style: const TextStyle(
+                    color: kColorText, fontSize: 13, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(
+                    c.seasonRank != null
+                        ? '$month: #${c.seasonRank} of ${c.seasonPlayers} · ${_pts(c.seasonPoints)} pts'
+                        : '$month: no matches yet',
+                    style: const TextStyle(color: kColorMuted, fontSize: 11)),
+                ])),
+                const SizedBox(width: 8),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text(
+                    provisional || c.ratingRank == 0 ? 'Provisional' : '#${c.ratingRank}',
+                    style: TextStyle(
+                      color: provisional ? kColorMuted : kColorAmber,
+                      fontSize: provisional ? 12 : 18, fontWeight: FontWeight.w900)),
+                  Text('of ${c.members} · $fmt',
+                    style: const TextStyle(color: kColorMuted, fontSize: 10)),
+                ]),
+              ]),
+            ),
+          ),
+        const SizedBox(height: 4),
+      ]),
+    );
+  }
+
+  static String _pts(num? v) {
+    if (v == null) return '0';
+    return v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
+  }
+}
+
+class _BadgesCard extends StatelessWidget {
+  final List<SeasonBadge> badges;
+  const _BadgesCard({required this.badges});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: _cardDecoration,
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _CardLabel('BADGES (${badges.length})', Icons.workspace_premium_rounded, kColorViolet),
+      const SizedBox(height: 10),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final b in badges) SeasonBadgeChip(badge: b, showContext: true),
+      ]),
+    ]),
+  );
 }

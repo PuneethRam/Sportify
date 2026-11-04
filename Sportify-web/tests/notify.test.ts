@@ -57,7 +57,7 @@ describe("device tokens and preferences", () => {
     const u = await createUser(uniq("u"));
     const tok = await register(u);
     const before = await call(preferences.GET, { uid: u, method: "GET" });
-    expect(before.json.preferences).toEqual({ results: true, sessions: true, announcements: true, invites: true });
+    expect(before.json.preferences).toEqual({ results: true, sessions: true, announcements: true, invites: true, streaks: true, seasons: true });
     expect((await call(preferences.PUT, { uid: u, method: "PUT", body: { nonsense: false } })).status).toBe(400);
     const after = await call(preferences.PUT, { uid: u, method: "PUT", body: { announcements: false } });
     expect(after.json.preferences).toMatchObject({ announcements: false, results: true });

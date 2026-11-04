@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 import { createConnection } from '@/lib/db'; // Import the createConnection function
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { loadRatingChanges } from "@/lib/ratings";
 
 // Interface for raw database singles match results
 interface SinglesMatchRow extends RowDataPacket {
@@ -61,6 +62,10 @@ interface FormattedMatch {
   winner: string | null;
   matchDate: Date;
   seriesId: string;
+  /** Glicko-2 rating change per player id, e.g. { "uid": 14, "uid2": -9 }. Empty if not rated. */
+  ratingChanges: Record<string, number>;
+  /** Source for POST /api/share { kind: "match" }. */
+  source: 'clan_singles' | 'clan_doubles';
 }
 
 // Helper function to safely parse score details
@@ -239,6 +244,9 @@ export async function GET(req: Request) {
     
     
     // Transform the singles matches data
+    const singlesChanges = await loadRatingChanges("clan_singles", singlesMatches.map(m => Number(m.match_id)));
+    const doublesChanges = await loadRatingChanges("clan_doubles", doublesMatches.map(m => Number(m.match_id)));
+
     const formattedSinglesMatches = singlesMatches.map((match: SinglesMatchRow): FormattedMatch => {
       // Safely parse the score details
       const scoreDetails = parseScoreDetails(match.score_details);
@@ -266,7 +274,9 @@ export async function GET(req: Request) {
         scores: scoreDetails,
         winner: match.winner_player,
         matchDate: match.match_date,
-        seriesId: match.series_id
+        seriesId: match.series_id,
+        ratingChanges: singlesChanges.get(Number(match.match_id)) ?? {},
+        source: 'clan_singles',
       };
     });
     
@@ -296,7 +306,9 @@ export async function GET(req: Request) {
         scores: scoreDetails,
         winner: match.winner_team,
         matchDate: match.match_date,
-        seriesId: match.series_id
+        seriesId: match.series_id,
+        ratingChanges: doublesChanges.get(Number(match.match_id)) ?? {},
+        source: 'clan_doubles',
       };
     });
     
