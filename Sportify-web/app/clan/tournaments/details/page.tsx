@@ -4,6 +4,8 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Trophy, Users, User, Loader2, Swords, RefreshCw, Check, X, Pencil, Lock } from "lucide-react";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import ShareCardButton from "@/app/components/ShareCardButton";
+import RatingDelta from "@/app/components/RatingDelta";
 
 // Define TypeScript interfaces
 interface TournamentTeam {
@@ -32,6 +34,8 @@ interface TournamentMatch {
   phase: "group" | "knockout";
   team1_players: string | null; // JSON array of user IDs
   team2_players: string | null;
+  /** Rating change per player id for a rated match, e.g. { uid: 14 }. */
+  rating_changes?: Record<string, number>;
   parsedScore?: {
     score: string;
     games: { team1: number, team2: number }[];
@@ -607,6 +611,16 @@ function TournamentDetailsContent() {
     const done = !!match.winner_team_id;
     const scoreDisplay = match.parsedScore?.games?.map(g => `${g.team1}–${g.team2}`).join("  ·  ");
     const accentGrad = done ? "from-emerald-500 to-teal-600" : "from-blue-500 to-teal-600";
+    const changes = match.rating_changes ?? {};
+    const lineup = (raw: string | null, team?: TournamentTeam) => {
+      let ids: string[] = [];
+      try { const parsed = raw ? JSON.parse(raw) : null; if (Array.isArray(parsed)) ids = parsed.map(String); } catch { /* no selection */ }
+      if (!ids.length) ids = team?.playersDetails?.map(p => p.user_id) ?? [];
+      return ids.filter(id => changes[id] != null);
+    };
+    const playerName = (uid: string) =>
+      teams.flatMap(t => t.playersDetails ?? []).find(p => p.user_id === uid)?.name ?? "Player";
+    const rated = done ? [...lineup(match.team1_players, t1), ...lineup(match.team2_players, t2)] : [];
 
     return (
       <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-[#0C0E21]">
@@ -639,9 +653,24 @@ function TournamentDetailsContent() {
               {match.parsedScore?.games && <span className={`stat-num text-lg ml-2 flex-shrink-0 ${t2Win ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400"}`}>{match.parsedScore.games.filter(g => g.team2 > g.team1).length}</span>}
             </div>
           </div>
+          {rated.length > 0 && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2.5 px-1">
+              {rated.map(uid => (
+                <span key={uid} className="inline-flex items-center gap-1 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400 truncate max-w-[120px]">{playerName(uid)}</span>
+                  <RatingDelta value={changes[uid]} />
+                </span>
+              ))}
+            </div>
+          )}
           {/* Score + action row */}
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
             <span className="text-xs text-slate-400 truncate">{scoreDisplay || "Not played yet"}</span>
+            {done && (
+              <span className="ml-auto flex-shrink-0">
+                <ShareCardButton payload={{ kind: "match", source: "tournament", matchId: match.match_id }} />
+              </span>
+            )}
             {tournament.status !== "completed" && (
               lockedMatchIds.has(match.match_id) ? (
                 <span className="flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0 ml-2">

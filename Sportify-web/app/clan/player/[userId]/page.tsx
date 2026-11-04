@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, User, Users2, Loader2, TrendingUp, Flame, Zap } from "lucide-react";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import PlayerProgress from "@/app/components/PlayerProgress";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -222,6 +223,11 @@ function PlayerProfileContent() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* ── Weekly streak, ratings, ranks, badges ── */}
+      <div className="mx-3 mt-3">
+        <PlayerProgress userId={userId} clanId={clanId} />
       </div>
 
       {/* ── W/L split bar ── */}

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { Users2, User, Clock, Trophy, Loader2, Play, Shield } from "lucide-react";
+import { Users2, User, Clock, Trophy, Loader2, Play, Shield, ClipboardList } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { getAuth } from "firebase/auth";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import PendingResults from "@/app/components/PendingResults";
+import ShareCardButton from "@/app/components/ShareCardButton";
+import RatingDelta from "@/app/components/RatingDelta";
 
 type MatchScore = { team1: number[]; team2: number[]; };
 type Match = {
@@ -18,6 +20,9 @@ type Match = {
   winner?: string | number;
   matchDate: string;
   seriesId?: number;
+  /** Rating change per player id, e.g. { uid: 14 }. Empty if the match isn't rated. */
+  ratingChanges?: Record<string, number>;
+  source?: "clan_singles" | "clan_doubles";
 };
 
 function MatchCard({ match }: { match: Match }) {
@@ -25,8 +30,10 @@ function MatchCard({ match }: { match: Match }) {
   const isLive = match.status === "live";
   const isDone = match.status === "completed";
 
-  const winnerIsTeam1 = isDone && match.winner != null && match.winner === match.playerIds?.team1?.[0];
-  const winnerIsTeam2 = isDone && match.winner != null && match.winner === match.playerIds?.team2?.[0];
+  // Singles: winner is the player id. Doubles: "team1" / "team2".
+  const winnerIsTeam1 = isDone && match.winner != null && (match.winner === "team1" || match.winner === match.playerIds?.team1?.[0]);
+  const winnerIsTeam2 = isDone && match.winner != null && (match.winner === "team2" || match.winner === match.playerIds?.team2?.[0]);
+  const changes = match.ratingChanges ?? {};
 
   const accentGrad = isLive
     ? "from-rose-500 to-red-600"
@@ -80,11 +87,14 @@ function MatchCard({ match }: { match: Match }) {
               )}
               <div className="min-w-0">
                 {match.players.team1.map((p, i) => (
-                  <p key={i} className={`font-bold text-sm sm:text-base truncate ${
-                    winnerIsTeam1
-                      ? "text-emerald-700 dark:text-emerald-300"
-                      : "text-slate-800 dark:text-white"
-                  }`}>{p}</p>
+                  <p key={i} className="flex items-center gap-2 min-w-0">
+                    <span className={`font-bold text-sm sm:text-base truncate ${
+                      winnerIsTeam1
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-slate-800 dark:text-white"
+                    }`}>{p}</span>
+                    <RatingDelta value={changes[match.playerIds?.team1?.[i]]} />
+                  </p>
                 ))}
               </div>
             </div>
@@ -123,11 +133,14 @@ function MatchCard({ match }: { match: Match }) {
               )}
               <div className="min-w-0">
                 {match.players.team2.map((p, i) => (
-                  <p key={i} className={`font-bold text-sm sm:text-base truncate ${
-                    winnerIsTeam2
-                      ? "text-emerald-700 dark:text-emerald-300"
-                      : "text-slate-800 dark:text-white"
-                  }`}>{p}</p>
+                  <p key={i} className="flex items-center gap-2 min-w-0">
+                    <span className={`font-bold text-sm sm:text-base truncate ${
+                      winnerIsTeam2
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-slate-800 dark:text-white"
+                    }`}>{p}</span>
+                    <RatingDelta value={changes[match.playerIds?.team2?.[i]]} />
+                  </p>
                 ))}
               </div>
             </div>
@@ -156,6 +169,13 @@ function MatchCard({ match }: { match: Match }) {
               <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
               LIVE
             </div>
+          )}
+          {isDone && (
+            <ShareCardButton payload={{
+              kind: "match",
+              source: match.source ?? (match.type === "singles" ? "clan_singles" : "clan_doubles"),
+              matchId: match.id,
+            }} />
           )}
         </div>
       </div>
@@ -261,12 +281,20 @@ function MatchesContent() {
 
       {/* Admin CTA */}
       {isAdmin && (
-        <button
-          onClick={() => clanId && router.push(`/clan/matches/start?clanId=${clanId}`)}
-          className="flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-all shadow-glow-blue-sm hover:shadow-glow-violet"
-        >
-          <Play className="w-4 h-4" /> Start New Match
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => clanId && router.push(`/clan/matches/start?clanId=${clanId}`)}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-all shadow-glow-blue-sm hover:shadow-glow-violet"
+          >
+            <Play className="w-4 h-4" /> Start New Match
+          </button>
+          <button
+            onClick={() => clanId && router.push(`/clan/matches/bulk?clanId=${clanId}`)}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all"
+          >
+            <ClipboardList className="w-4 h-4" /> Record class results
+          </button>
+        </div>
       )}
 
       {/* Content */}
