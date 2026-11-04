@@ -58,13 +58,13 @@ export function tzOffsetMinutes() {
 }
 
 /** Monday 00:00 (local), as a UTC timestamp of the shifted clock. */
-function weekStartMs(d: Date, offset: number) {
+export function weekStartMs(d: Date, offset: number) {
   const local = new Date(d.getTime() + offset * 60_000);
   const dow = (local.getUTCDay() + 6) % 7; // Monday = 0
   return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - dow);
 }
 
-function isoWeekLabel(mondayMs: number) {
+export function isoWeekLabel(mondayMs: number) {
   const thursday = new Date(mondayMs + 3 * DAY);
   const year = thursday.getUTCFullYear();
   const week = Math.floor((thursday.getTime() - Date.UTC(year, 0, 1)) / WEEK) + 1;
@@ -151,28 +151,34 @@ export function parsePlayers(raw: unknown): string[] {
     .filter((p): p is string => typeof p === "string" && p.length > 0);
 }
 
-export async function loadActivity(since: Date): Promise<Activity[]> {
+/** Confirmed ranked matches since `since`; only those `uid` played in if given. */
+export async function loadActivity(since: Date, uid?: string): Promise<Activity[]> {
   const singles = await executeQuery(
-    `SELECT match_date AS at, player_1, player_2 FROM InternalSinglesMatches WHERE match_date >= ?`,
-    [since]
+    `SELECT match_date AS at, player_1, player_2 FROM InternalSinglesMatches
+     WHERE match_date >= ?${uid ? " AND ? IN (player_1, player_2)" : ""}`,
+    uid ? [since, uid] : [since]
   ) as RowDataPacket[];
   const doubles = await executeQuery(
     `SELECT match_date AS at, team1_player1, team1_player2, team2_player1, team2_player2
-     FROM InternalDoublesMatches WHERE match_date >= ?`,
-    [since]
+     FROM InternalDoublesMatches
+     WHERE match_date >= ?${uid ? " AND ? IN (team1_player1, team1_player2, team2_player1, team2_player2)" : ""}`,
+    uid ? [since, uid] : [since]
   ) as RowDataPacket[];
+  // Rosters are JSON; the LIKE pre-filter is refined by the exact match below
+  const like = uid ? `%${uid.replace(/[\\%_]/g, c => `\\${c}`)}%` : null;
   const tournament = await executeQuery(
     `SELECT COALESCE(tm.recorded_at, tm.match_date) AS at,
             tm.team1_players, tm.team2_players, t1.players AS roster1, t2.players AS roster2
      FROM TournamentMatches tm
      LEFT JOIN TournamentTeams t1 ON t1.team_id = tm.team1_id
      LEFT JOIN TournamentTeams t2 ON t2.team_id = tm.team2_id
-     WHERE tm.winner_team_id IS NOT NULL AND COALESCE(tm.recorded_at, tm.match_date) >= ?`,
-    [since]
+     WHERE tm.winner_team_id IS NOT NULL AND COALESCE(tm.recorded_at, tm.match_date) >= ?${like
+       ? " AND (tm.team1_players LIKE ? OR tm.team2_players LIKE ? OR t1.players LIKE ? OR t2.players LIKE ?)" : ""}`,
+    like ? [since, like, like, like, like] : [since]
   ) as RowDataPacket[];
 
   const players = (...ids: unknown[]) => [...new Set(ids.filter((p): p is string => typeof p === "string" && !!p))];
-  return [
+  const all = [
     ...singles.map(r => ({ at: new Date(r.at), players: players(r.player_1, r.player_2) })),
     ...doubles.map(r => ({ at: new Date(r.at), players: players(r.team1_player1, r.team1_player2, r.team2_player1, r.team2_player2) })),
     ...tournament.map(r => {
@@ -184,6 +190,7 @@ export async function loadActivity(since: Date): Promise<Activity[]> {
       };
     }),
   ];
+  return uid ? all.filter(a => a.players.includes(uid)) : all;
 }
 
 export async function loadMetrics(weeks: number, now = new Date()): Promise<Metrics> {

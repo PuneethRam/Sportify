@@ -16,7 +16,7 @@ import { executeQuery } from "@/lib/db";
  * (go_router paths: /clans/<id>, /find/<id>, /academy/<orgId>).
  */
 
-export const CATEGORIES = ["results", "sessions", "announcements", "invites"] as const;
+export const CATEGORIES = ["results", "sessions", "announcements", "invites", "streaks", "seasons"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 // Transactional = something the user has to act on or would be hurt to miss.
@@ -30,6 +30,9 @@ export const NOTIFICATION_TYPES = {
   session_player_joined:     { category: "sessions", transactional: false },
   announcement:              { category: "announcements", transactional: false },
   invite_accepted:           { category: "invites", transactional: false },
+  streak_at_risk:            { category: "streaks", transactional: false },
+  season_ended:              { category: "seasons", transactional: false },
+  rank_overtaken:            { category: "seasons", transactional: false },
 } as const satisfies Record<string, { category: Category; transactional: boolean }>;
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 
@@ -155,4 +158,21 @@ export async function notify(to: string | (string | null | undefined)[], type: N
 export async function displayName(uid: string, fallback = "Someone") {
   const [row] = await executeQuery(`SELECT name FROM Users WHERE user_id = ?`, [uid]) as RowDataPacket[];
   return (row?.name as string | undefined)?.trim() || fallback;
+}
+
+/**
+ * Claims one-off keys (e.g. "rank_overtaken:<uid>:<clan>:<day>") and returns
+ * the ones nobody claimed before. Use to send a push at most once per key.
+ */
+export async function claimOnce(keys: string[]): Promise<Set<string>> {
+  const won = new Set<string>();
+  for (const key of new Set(keys)) {
+    try {
+      const res = await executeQuery(`INSERT IGNORE INTO NotificationDedupe (dedupe_key) VALUES (?)`, [key]) as { affectedRows: number };
+      if (res.affectedRows === 1) won.add(key);
+    } catch (err) {
+      console.error("[notify] dedupe failed:", err);
+    }
+  }
+  return won;
 }

@@ -4,6 +4,7 @@ import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, isClanAdmin } from "@/lib/authz";
 import { finalizeSubmission, isOpponentOfSubmitter, loadSubmission, SubmissionConflict } from "@/lib/matchSubmissions";
 import { notifyResultConfirmed, notifyResultDisputed } from "@/lib/resultNotifications";
+import { notifyOvertakes } from "@/lib/seasons";
 
 // POST /api/clans/matches/confirm
 // Body: { submissionId, action: "confirm" | "reject" }
@@ -56,7 +57,13 @@ export async function POST(req: Request) {
       const result = await finalizeSubmission(connection, submission, uid);
       await connection.commit();
       await notifyResultConfirmed(submission, uid);
-      return NextResponse.json({ success: true, status: "confirmed", matchId: result.matchId, pointsAwarded: result.points });
+      await notifyOvertakes(submission.clan_id, [{
+        source: submission.match_type === "singles" ? "clan_singles" : "clan_doubles", matchId: result.matchId,
+      }]);
+      return NextResponse.json({
+        success: true, status: "confirmed", matchId: result.matchId, pointsAwarded: result.points,
+        ratingChanges: Object.fromEntries(Object.entries(result.ratingChanges).map(([u, d]) => [u, Math.round(d)])),
+      });
     } catch (err) {
       await connection.rollback();
       throw err;

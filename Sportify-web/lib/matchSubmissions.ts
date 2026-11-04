@@ -1,6 +1,6 @@
 import type { Connection } from "mysql2/promise";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
-import { applyResult, determineWinner, MatchFormat, Side } from "@/lib/scoring";
+import { applyResult, determineWinner, MatchFormat, parseGames, Side } from "@/lib/scoring";
 
 /**
  * Clan match results go through MatchSubmissions:
@@ -26,6 +26,66 @@ export interface Submission {
   winner: Side | null;
   status: "pending" | "confirmed" | "disputed";
   submitted_by: string;
+}
+
+export interface MatchEntry {
+  matchType: MatchFormat;
+  team1: string[];
+  team2: string[];
+  /** Stored as MatchSubmissions.score_details (JSON with at least `score`). */
+  scoreDetails: { score: string } & Record<string, unknown>;
+}
+
+/**
+ * Validates one result as sent by clients:
+ *   { matchType: "singles", player1, player2, scoreDetails: { score } }
+ *   { matchType: "doubles", team1Player1, team1Player2, team2Player1, team2Player2, scoreDetails: { score } }
+ * `score` may also be given at the top level. Returns the entry or an error message.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseMatchEntry(data: any): MatchEntry | string {
+  const matchType = data?.matchType;
+  const scoreDetails = data?.scoreDetails && typeof data.scoreDetails === "object"
+    ? data.scoreDetails
+    : typeof data?.score === "string" ? { score: data.score } : null;
+  if (!matchType || !scoreDetails) return "Missing required fields";
+  const score = scoreDetails.score;
+  if (typeof score !== "string" || !parseGames(score).length) return "Score is required, e.g. \"21-15, 21-18\"";
+
+  let team1: string[];
+  let team2: string[];
+  if (matchType === "singles") {
+    team1 = [data.player1];
+    team2 = [data.player2];
+  } else if (matchType === "doubles") {
+    team1 = [data.team1Player1, data.team1Player2];
+    team2 = [data.team2Player1, data.team2Player2];
+  } else {
+    return "Invalid match type";
+  }
+  const players = [...team1, ...team2];
+  if (players.some(p => !p || typeof p !== "string")) return "Missing player information";
+  if (new Set(players).size !== players.length) return "A player can only appear once in a match";
+  return { matchType, team1, team2, scoreDetails };
+}
+
+/** Inserts a pending submission; returns its id. */
+export async function insertSubmission(
+  db: Pick<Connection, "execute">,
+  clanId: unknown,
+  e: MatchEntry,
+  submittedBy: string,
+  opts: { seriesId?: number | null; entryMethod?: "player" | "admin" | "bulk" } = {}
+) {
+  const [ins] = await db.execute<ResultSetHeader>(
+    `INSERT INTO MatchSubmissions
+     (clan_id, match_type, series_id, team1_player1, team1_player2, team2_player1, team2_player2,
+      score_details, winner, submitted_by, entry_method)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [clanId, e.matchType, opts.seriesId ?? null, e.team1[0], e.team1[1] ?? null, e.team2[0], e.team2[1] ?? null,
+     JSON.stringify(e.scoreDetails), determineWinner(e.scoreDetails.score), submittedBy, opts.entryMethod ?? "player"]
+  );
+  return ins.insertId;
 }
 
 export function teamsOf(s: Submission): { team1: string[]; team2: string[] } {
@@ -100,13 +160,21 @@ export async function finalizeSubmission(db: Connection, s: Submission, resolver
 
   await db.execute(`UPDATE MatchSubmissions SET match_id = ? WHERE submission_id = ?`, [matchId, s.submission_id]);
 
-  const points = await applyResult(db, {
+  const table = s.match_type === "singles" ? "InternalSinglesMatches" : "InternalDoublesMatches";
+  const [[row]] = await db.execute<RowDataPacket[]>(`SELECT match_date FROM ${table} WHERE match_id = ?`, [matchId]);
+
+  const { points, ratingChanges } = await applyResult(db, {
     clanId: s.clan_id,
     format: s.match_type,
     team1,
     team2,
     score: s.score_details,
+    match: {
+      source: s.match_type === "singles" ? "clan_singles" : "clan_doubles",
+      matchId,
+      playedAt: new Date(row.match_date),
+    },
   });
 
-  return { matchId, winner, points };
+  return { matchId, winner, points, ratingChanges };
 }

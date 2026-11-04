@@ -3,6 +3,7 @@ import { executeQuery } from "@/lib/db";
 import { ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, getManagedTournament } from "@/lib/authz";
+import { recomputeRatings } from "@/lib/ratings";
 
 export async function DELETE(req: Request) {
   try {
@@ -39,6 +40,9 @@ export async function DELETE(req: Request) {
     if (result.affectedRows === 0) {
       return NextResponse.json({ success: false, error: "Tournament not found" }, { status: 404 });
     }
+
+    // Its results no longer count: rebuild ratings from what's left
+    await recomputeRatings();
 
     return NextResponse.json({ success: true });
   } catch (error) {
