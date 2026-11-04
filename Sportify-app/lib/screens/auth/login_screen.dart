@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../services/analytics.dart';
 import '../../services/auth_service.dart';
 import '../../core/theme.dart';
 
@@ -45,6 +46,9 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final cred = await AuthService.instance.signInWithGoogle();
+      if (cred?.additionalUserInfo?.isNewUser == true) {
+        Analytics.instance.track('signup_completed', {'method': 'google'});
+      }
       if (cred != null && mounted) context.go('/');
     } catch (e) {
       setState(() { _error = e.toString().replaceAll('Exception: ', ''); });

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../models/organisation_model.dart';
 import '../../services/api_service.dart';
+import '../../widgets/invite_share.dart';
 import '../../widgets/loading_screen.dart';
 import 'batch_screen.dart';
 
@@ -224,6 +225,10 @@ class _BatchRow extends StatelessWidget {
                 fontSize: 13, letterSpacing: 2)),
             ),
           ),
+        if (isOwner && batch.inviteCode != null)
+          InviteShareButton(
+            type: 'batch', id: batch.clanId, name: batch.name,
+            color: kColorEmerald, size: 18),
         if (isOwner) ...[
           const SizedBox(width: 8),
           GestureDetector(

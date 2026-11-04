@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../widgets/invite_share.dart';
 import '../../widgets/loading_screen.dart';
 import 'student_screen.dart';
 
@@ -66,6 +67,11 @@ class _BatchScreenState extends State<BatchScreen>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(widget.batchName),
+      actions: [
+        if (_isCoach && int.tryParse(widget.batchId) != null)
+          InviteShareButton(
+            type: 'batch', id: int.parse(widget.batchId), name: widget.batchName),
+      ],
       bottom: TabBar(
         controller: _tabs,
         tabs: const [

@@ -3,7 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 
 class CreateSessionScreen extends StatefulWidget {
   const CreateSessionScreen({super.key});
@@ -69,10 +71,15 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
         'skill_level': _skill,
         'description': _descCtrl.text.trim(),
       });
+      Analytics.instance.track('session_created', {
+        'sport': _sport,
+        'max_players': _maxPlayers,
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Session created!')));
         context.pop();
+        PushService.instance.maybeAskPermission();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme.dart';
@@ -78,6 +79,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.refresh_outlined, size: 20),
             onPressed: _load,
             tooltip: 'Refresh',
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_none_rounded, size: 20),
+            onPressed: () => context.push('/settings/notifications'),
+            tooltip: 'Notifications',
           ),
           IconButton(
             icon: const Icon(Icons.logout_outlined, size: 20),

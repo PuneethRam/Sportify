@@ -4,9 +4,12 @@ import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../models/game_session_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 import '../../widgets/loading_screen.dart';
 import '../../core/constants.dart';
+import '../../widgets/invite_share.dart';
 import '../../widgets/sport_badge.dart';
 
 class SessionDetailScreen extends StatefulWidget {
@@ -63,7 +66,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     try {
       await ApiService.instance.post(
         '/api/game-sessions/${widget.sessionId}/join', {});
+      Analytics.instance.track('session_joined', {'source': 'browse'});
       await _load();
+      if (mounted) PushService.instance.maybeAskPermission(context);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())));
@@ -106,6 +111,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       appBar: AppBar(
         title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          if (isHost && s.status == 'open')
+            InviteShareButton(type: 'session', id: s.sessionId, name: s.title),
           if (isHost)
             IconButton(
               icon: const Icon(Icons.refresh_outlined, size: 18),

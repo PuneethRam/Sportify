@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../widgets/invite_share.dart';
 import '../../widgets/loading_screen.dart';
 import 'matches_screen.dart';
 import 'leaderboard_screen.dart';
@@ -45,8 +46,12 @@ class _ClanDetailScreenState extends State<ClanDetailScreen>
     setState(() => _loading = true);
     try {
       final data = await ApiService.instance.get(
-          '/api/clans/get_clan', query: {'clanId': widget.clanId});
-      setState(() { _clan = data['data'] ?? data; });
+          '/api/clans/get_clan', query: {'id': widget.clanId, 'clanId': widget.clanId});
+      final raw = data['data'];
+      final clan = raw is List
+          ? (raw.isNotEmpty ? raw.first : null)
+          : raw ?? data;
+      if (clan is Map) setState(() { _clan = clan.cast<String, dynamic>(); });
     } catch (_) {}
     try {
       final data = await ApiService.instance.get(
@@ -161,13 +166,22 @@ class _ClanDetailScreenState extends State<ClanDetailScreen>
                 color: Colors.white, size: 20),
             onPressed: () => context.pop(),
           )),
-        // Refresh
+        // Share invite (admins) + refresh
         Positioned(top: topPad + 4, right: 4,
-          child: IconButton(
-            icon: const Icon(Icons.refresh_outlined,
-                color: Colors.white54, size: 20),
-            onPressed: _load,
-          )),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (_isAdmin && int.tryParse(widget.clanId) != null)
+              InviteShareButton(
+                type: _clan?['type'] == 'batch' ? 'batch' : 'clan',
+                id: int.parse(widget.clanId),
+                name: clanName,
+                color: Colors.white70,
+              ),
+            IconButton(
+              icon: const Icon(Icons.refresh_outlined,
+                  color: Colors.white54, size: 20),
+              onPressed: _load,
+            ),
+          ])),
         // Bottom content
         Positioned(left: 20, right: 20, bottom: 18,
           child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [

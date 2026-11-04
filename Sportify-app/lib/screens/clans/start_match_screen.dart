@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../services/analytics.dart';
 import '../../services/api_service.dart';
+import '../../services/push_service.dart';
 import '../../widgets/loading_screen.dart';
 import '../../widgets/pending_results.dart';
 
@@ -133,11 +135,16 @@ class _StartMatchScreenState extends State<StartMatchScreen> {
             };
 
       final res = await ApiService.instance.post('/api/clans/update_match', body);
+      Analytics.instance.track('match_submitted', {
+        'match_type': _matchType,
+        'status': res['status'] == 'pending' ? 'pending' : 'confirmed',
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
           matchSubmitMessage(res, confirmed: 'Match recorded successfully!'))));
         context.pop();
+        PushService.instance.maybeAskPermission();
       }
     } catch (e) {
       if (mounted) _snack(e.toString());

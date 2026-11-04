@@ -52,6 +52,19 @@ void main() {
     expect(authHeaders, everyElement('Bearer token-1'));
   });
 
+  test('delete can send a JSON body', () async {
+    http.Request? seen;
+    final api = build((req) {
+      seen = req;
+      return http.Response('{"success":true}', 200);
+    });
+
+    await api.delete('/api/notifications/devices', body: {'token': 'fcm-1'});
+
+    expect(seen!.method, 'DELETE');
+    expect(seen!.body, '{"token":"fcm-1"}');
+  });
+
   test('on 401 force-refreshes the token and retries once', () async {
     final api = build((req) => req.headers['Authorization'] == 'Bearer token-1'
         ? http.Response('{"error":"expired"}', 401)
