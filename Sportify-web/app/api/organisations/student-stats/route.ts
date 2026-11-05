@@ -105,7 +105,7 @@ export async function GET(req: Request) {
            SUM(CASE WHEN winner_team_id IN (${phTeam}) THEN 1 ELSE 0 END) AS won
          FROM TournamentMatches
          WHERE (team1_id IN (${phTeam}) OR team2_id IN (${phTeam}))
-           AND winner_team_id IS NOT NULL`,
+           AND winner_team_id IS NOT NULL AND result_status = 'confirmed'`,
         [...teamIds, ...teamIds, ...teamIds]
       ) as { played: number; won: number }[];
       tourneyMatchesPlayed = Number(tmRow?.played) || 0;

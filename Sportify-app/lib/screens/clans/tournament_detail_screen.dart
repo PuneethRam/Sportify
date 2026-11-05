@@ -89,6 +89,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   int  _advancingCount = 2;
 
   bool _completing     = false;
+  bool _canManage      = false; // host or clan admin, from the server
+  int? _resolving;                // match being confirmed / disputed
   bool _generatingKO   = false;
   bool _advancingToKO  = false;
   bool _tabInitialized = false;
@@ -141,6 +143,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
       setState(() {
         _tournament = Map<String, dynamic>.from(data['tournament'] as Map);
+        _canManage  = data['canManage'] == true;
         _teams      = List<Map<String, dynamic>>.from(data['teams']   ?? []);
         _matches    = List<Map<String, dynamic>>.from(data['matches'] ?? []);
         _groups     = groups;
@@ -229,48 +232,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               .compareTo((b['match_position'] as num?)?.toInt() ?? 0));
     }
     return map;
-  }
-
-  Set<int> _computeLockedMatchIds() {
-    final locked = <int>{};
-
-    // group_knockout: lock all group matches once KO starts
-    if (_format == 'group_knockout' && _knockoutStarted) {
-      for (final m in _matches) {
-        if (m['phase']?.toString() != 'knockout') {
-          final id = (m['match_id'] as num?)?.toInt();
-          if (id != null) locked.add(id);
-        }
-      }
-    }
-
-    // Bracket: lock a match whose winner is already seeded into next round
-    final bracketMatches = _format == 'knockout'
-        ? _matches
-        : _matches.where((m) => m['phase']?.toString() == 'knockout').toList();
-
-    final roundsMap = _buildRoundsMap(bracketMatches);
-    final sortedRounds = roundsMap.keys.toList()..sort();
-
-    for (var ri = 0; ri < sortedRounds.length - 1; ri++) {
-      final current = roundsMap[sortedRounds[ri]]!;
-      final next    = roundsMap[sortedRounds[ri + 1]]!;
-      final teamsInNext = <int>{};
-      for (final m in next) {
-        final t1 = (m['team1_id'] as num?)?.toInt();
-        final t2 = (m['team2_id'] as num?)?.toInt();
-        if (t1 != null) teamsInNext.add(t1);
-        if (t2 != null) teamsInNext.add(t2);
-      }
-      for (final m in current) {
-        final wId = (m['winner_team_id'] as num?)?.toInt();
-        if (wId != null && teamsInNext.contains(wId)) {
-          final mId = (m['match_id'] as num?)?.toInt();
-          if (mId != null) locked.add(mId);
-        }
-      }
-    }
-    return locked;
   }
 
   List<Map<String, dynamic>> _buildGroupStandings(int groupId) {
@@ -420,6 +381,71 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     );
   }
 
+  // ── Result confirmation ────────────────────────────────────────────────────
+  // A result entered by someone who played in it counts (rating, points) only
+  // once the other side, or a host / admin who didn't play, confirms it. The
+  // bracket moves on either way.
+
+  bool _awaiting(Map<String, dynamic> m) =>
+      m['winner_team_id'] != null &&
+      (m['result_status'] == 'pending' || m['result_status'] == 'disputed');
+
+  String _statusLabel(Map<String, dynamic> m) =>
+      m['result_status'] == 'disputed' ? 'Disputed' : 'Waiting for confirmation';
+
+  Color _statusColor(Map<String, dynamic> m) =>
+      m['result_status'] == 'disputed' ? kColorRose : kColorAmber;
+
+  /// Score an open match, or correct a pending / disputed one (the server
+  /// says which results are still correctable).
+  bool _canScore(Map<String, dynamic> m) =>
+      (_canManage || widget.isAdmin) && _isOngoing &&
+      (m['winner_team_id'] == null || m['can_correct'] == true);
+
+  Future<void> _resolve(Map<String, dynamic> match, String action) async {
+    final mId = (match['match_id'] as num?)?.toInt();
+    if (mId == null) return;
+    setState(() => _resolving = mId);
+    try {
+      await ApiService.instance.post('/api/clans/tournaments/confirm_match', {
+        'tournamentId': widget.tournamentId,
+        'matchId': mId,
+        'action': action,
+      });
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+            action == 'confirm' ? 'Result confirmed' : 'Result disputed. The host can correct the score.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _resolving = null);
+    }
+  }
+
+  void _askResolve(Map<String, dynamic> match) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm this result?'),
+        content: Text('${_scoreDisplay(match['score_details']?.toString()).replaceAll('  ·  ', ', ')}\n\n'
+            'Confirm if it\'s right. Dispute it if it isn\'t, and the host can correct the score.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () { Navigator.pop(ctx); _resolve(match, 'reject'); },
+            child: const Text('Dispute', style: TextStyle(color: kColorRose)),
+          ),
+          TextButton(
+            onPressed: () { Navigator.pop(ctx); _resolve(match, 'confirm'); },
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
@@ -437,12 +463,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       );
 
   Widget _buildBody() {
-    final locked = _computeLockedMatchIds();
     final tabs   = _buildTabs();
     return Column(children: [
       _buildHeader(),
       if (tabs.length > 1) _buildTabRow(tabs),
-      Expanded(child: _buildTabContent(tabs, locked)),
+      Expanded(child: _buildTabContent(tabs)),
     ]);
   }
 
@@ -626,14 +651,14 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     );
   }
 
-  Widget _buildTabContent(List<String> tabs, Set<int> locked) {
+  Widget _buildTabContent(List<String> tabs) {
     if (tabs.isEmpty || _selectedTab >= tabs.length) return const CenteredLoader();
     switch (tabs[_selectedTab]) {
       case 'Teams':    return _buildTeamsTab();
-      case 'Matches':  return _buildMatchesTab(locked);
+      case 'Matches':  return _buildMatchesTab();
       case 'Standings': return _buildStandingsTab();
-      case 'Groups':   return _buildGroupsTab(locked);
-      case 'Brackets': return _buildBracketsTab(locked);
+      case 'Groups':   return _buildGroupsTab();
+      case 'Brackets': return _buildBracketsTab();
       default:         return const SizedBox();
     }
   }
@@ -729,7 +754,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
   // ── Matches Tab ────────────────────────────────────────────────────────────
 
-  Widget _buildMatchesTab(Set<int> locked) {
+  Widget _buildMatchesTab() {
     final roundsMap = _buildRoundsMap(_matches);
     if (roundsMap.isEmpty) {
       return const EmptyView(
@@ -745,13 +770,13 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         final rn      = sortedRounds[i];
         final rMatches = roundsMap[rn]!;
         final played  = rMatches.where((m) => m['winner_team_id'] != null).length;
-        return _buildRoundSection(rn, rMatches, played, locked);
+        return _buildRoundSection(rn, rMatches, played);
       },
     );
   }
 
   Widget _buildRoundSection(int round, List<Map<String, dynamic>> matches,
-      int played, Set<int> locked) {
+      int played) {
     final allDone = played == matches.length;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
@@ -770,12 +795,12 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         ),
       ]),
       const SizedBox(height: 8),
-      ...matches.map((m) => _buildMatchCard(m, locked)),
+      ...matches.map((m) => _buildMatchCard(m)),
       const SizedBox(height: 20),
     ]);
   }
 
-  Widget _buildMatchCard(Map<String, dynamic> match, Set<int> locked) {
+  Widget _buildMatchCard(Map<String, dynamic> match) {
     final team1   = _teamById(match['team1_id']);
     final team2   = _teamById(match['team2_id']);
     final t1Name  = team1?['team_name']?.toString() ?? 'TBD';
@@ -797,8 +822,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final t2Win   = done && sameId(wId, t2Id);
     final wins    = _gamesWon(match['score_details']?.toString());
     final scoreStr = _scoreDisplay(match['score_details']?.toString());
-    final isLocked = mId != null && locked.contains(mId);
-    final canEdit = widget.isAdmin && _isOngoing && !isLocked;
+    final awaiting = _awaiting(match);
+    final canEdit = _canScore(match);
+    final isLocked = done && !canEdit && (_canManage || widget.isAdmin) && _isOngoing;
     final changes = parseRatingChanges(match['rating_changes']);
     final rated = _ratedPlayers(match, changes);
 
@@ -845,14 +871,36 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 child: RatingChangeRow(changes: changes, ids: rated.ids, names: rated.names),
               ),
             ],
+            if (awaiting) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                Icon(match['result_status'] == 'disputed' ? Icons.error_outline_rounded : Icons.hourglass_top_rounded,
+                    size: 13, color: _statusColor(match)),
+                const SizedBox(width: 4),
+                Expanded(child: Text(_statusLabel(match),
+                    style: TextStyle(color: _statusColor(match), fontSize: 11, fontWeight: FontWeight.w700))),
+                if (match['can_resolve'] == true) ...[
+                  TextButton(
+                    onPressed: _resolving == mId ? null : () => _resolve(match, 'reject'),
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, foregroundColor: kColorRose),
+                    child: const Text('Dispute', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                  TextButton(
+                    onPressed: _resolving == mId ? null : () => _resolve(match, 'confirm'),
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, foregroundColor: kColorEmerald),
+                    child: const Text('Confirm', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ]),
+            ],
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Text(
                 scoreStr.isNotEmpty ? scoreStr : 'Not played yet',
                 style: TextStyle(color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.5), fontSize: 11),
               )),
-              // A recorded tournament result counts as confirmed
-              if (done && mId != null)
+              // Only a confirmed result can be shared
+              if (done && !awaiting && mId != null)
                 SizedBox(
                   height: 28,
                   child: ShareCardButton(
@@ -873,7 +921,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
               else if (canEdit)
                 GestureDetector(
                   onTap: () => _showScoreSheet(match),
-                  child: Text(done ? 'Edit' : 'Score',
+                  child: Text(done ? 'Correct' : 'Score',
                       style: const TextStyle(color: kColorPrimary, fontSize: 12, fontWeight: FontWeight.w700)),
                 ),
             ]),
@@ -1096,7 +1144,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
   // ── Groups Tab ─────────────────────────────────────────────────────────────
 
-  Widget _buildGroupsTab(Set<int> locked) {
+  Widget _buildGroupsTab() {
     if (_groups.isEmpty) {
       return const EmptyView(message: 'No group data', icon: Icons.group_work_outlined);
     }
@@ -1154,13 +1202,13 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
           const SizedBox(height: 20),
           const Text('GROUP MATCHES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: kColorMuted, letterSpacing: 1)),
           const SizedBox(height: 8),
-          ..._buildGroupMatchWidgets(_activeGroupId!, locked),
+          ..._buildGroupMatchWidgets(_activeGroupId!),
         ],
       ],
     );
   }
 
-  List<Widget> _buildGroupMatchWidgets(int groupId, Set<int> locked) {
+  List<Widget> _buildGroupMatchWidgets(int groupId) {
     final gMatches = _getGroupMatches(groupId);
     if (gMatches.isEmpty) {
       return [const EmptyView(message: 'No matches in this group yet', icon: Icons.sports_rounded)];
@@ -1171,14 +1219,14 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     for (final rn in sortedRounds) {
       final rMatches = roundsMap[rn]!;
       final played   = rMatches.where((m) => m['winner_team_id'] != null).length;
-      result.add(_buildRoundSection(rn, rMatches, played, locked));
+      result.add(_buildRoundSection(rn, rMatches, played));
     }
     return result;
   }
 
   // ── Brackets Tab (visual) ──────────────────────────────────────────────────
 
-  Widget _buildBracketsTab(Set<int> locked) {
+  Widget _buildBracketsTab() {
     const cardH      = 108.0;
     const baseSlotH  = 140.0;
     const connectorW = 36.0;
@@ -1263,7 +1311,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                                   top: mi * baseSlotH * pow(2, ri) + (baseSlotH * pow(2, ri) - cardH) / 2,
                                   width: roundW,
                                   cardH: cardH,
-                                  locked: locked,
                                 ),
                             ],
                           ),
@@ -1343,7 +1390,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     required double top,
     required double width,
     required double cardH,
-    required Set<int> locked,
   }) {
     final team1  = _teamById(match['team1_id']);
     final team2  = _teamById(match['team2_id']);
@@ -1363,9 +1409,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final wins     = _gamesWon(match['score_details']?.toString());
     final scoreStr = _scoreDisplay(match['score_details']?.toString());
     final mId      = (match['match_id'] as num?)?.toInt();
-    final isLocked = mId != null && locked.contains(mId);
-    final canEdit  = widget.isAdmin && _isOngoing && !isLocked;
     final done     = wId != null;
+    final awaiting = _awaiting(match);
+    final canEdit  = _canScore(match);
+    final isLocked = done && !canEdit && (_canManage || widget.isAdmin) && _isOngoing;
     final changes  = parseRatingChanges(match['rating_changes']);
     final t1Change = done ? _teamRatingChange(team1, changes) : null;
     final t2Change = done ? _teamRatingChange(team2, changes) : null;
@@ -1438,15 +1485,25 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
             child: Padding(
               padding: const EdgeInsets.only(left: 8, right: 4),
               child: Row(children: [
-                Expanded(child: Text(
-                  scoreStr.isNotEmpty ? scoreStr : 'Not played',
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 9,
-                    fontStyle: scoreStr.isEmpty ? FontStyle.italic : FontStyle.normal,
-                    color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.4)),
-                )),
+                // A pending result shows its status instead; tap to confirm or dispute
+                Expanded(child: awaiting
+                  ? GestureDetector(
+                      onTap: match['can_resolve'] == true ? () => _askResolve(match) : null,
+                      child: Text(
+                        match['can_resolve'] == true ? '${_statusLabel(match)} · Tap' : _statusLabel(match),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: _statusColor(match)),
+                      ),
+                    )
+                  : Text(
+                      scoreStr.isNotEmpty ? scoreStr : 'Not played',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 9,
+                        fontStyle: scoreStr.isEmpty ? FontStyle.italic : FontStyle.normal,
+                        color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.4)),
+                    )),
                 // Same share card as the match list
-                if (done && mId != null)
+                if (done && !awaiting && mId != null)
                   SizedBox(
                     width: 30,
                     height: 30,
@@ -1464,7 +1521,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 else if (canEdit)
                   GestureDetector(
                     onTap: () => _showScoreSheet(match),
-                    child: Text(wId != null ? 'Edit' : 'Score',
+                    child: Text(wId != null ? 'Fix' : 'Score',
                       style: const TextStyle(color: kColorPrimary, fontSize: 10, fontWeight: FontWeight.w700)),
                   ),
               ]),

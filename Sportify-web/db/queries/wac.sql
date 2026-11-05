@@ -4,7 +4,7 @@
 -- match in the ISO week (Monday–Sunday, India time).
 --   * clan matches: InternalSinglesMatches / InternalDoublesMatches hold only
 --     confirmed results (pending ones live in MatchSubmissions)
---   * tournament matches: a winner has been recorded
+--   * tournament matches: a winner has been recorded and confirmed
 -- Run with: mysql ... < db/queries/wac.sql
 
 WITH activity AS (
@@ -22,7 +22,7 @@ WITH activity AS (
     CAST(COALESCE(IF(t.team_id = tm.team1_id, tm.team1_players, tm.team2_players), t.players) AS JSON),
     '$[*]' COLUMNS (uid VARCHAR(128) PATH '$')
   ) p
-  WHERE tm.winner_team_id IS NOT NULL
+  WHERE tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
 ),
 local AS (
   SELECT DATE(at + INTERVAL 330 MINUTE) AS day, uid FROM activity

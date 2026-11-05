@@ -3,6 +3,8 @@ import { executeQuery } from "@/lib/db";
 import { RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { loadRatingChanges } from "@/lib/ratings";
+import { getManagedTournament } from "@/lib/authz";
+import { canResolve, correctionBlock, MatchLite, TournamentResult } from "@/lib/tournamentResults";
 
 export async function GET(req: Request) {
   try {
@@ -100,7 +102,7 @@ export async function GET(req: Request) {
     const matches = await executeQuery(
       `SELECT match_id, team1_id, team2_id, winner_team_id, score_details,
               match_stage, match_date, round_number, match_position, phase,
-              team1_players, team2_players
+              team1_players, team2_players, result_status, recorded_by
        FROM TournamentMatches
        WHERE tournament_id = ?
        ORDER BY round_number ASC, match_position ASC`,
@@ -110,6 +112,20 @@ export async function GET(req: Request) {
     // Glicko-2 rating change per player for each rated match
     const changes = await loadRatingChanges("tournament", matches.map(m => Number(m.match_id)));
     matches.forEach(m => { m.rating_changes = changes.get(Number(m.match_id)) ?? {}; });
+
+    // What the caller can do with each result: confirm / dispute it (the other
+    // side, or a host / admin who didn't play), or correct it (host / admin)
+    const canManage = !!(await getManagedTournament(uid, tournamentId));
+    const roster = new Map(teams.map(t => [Number(t.team_id), t.players]));
+    matches.forEach(m => {
+      const result = {
+        ...m, clan_id: tournament.clan_id, tournament_id: tournament.tournament_id,
+        tournament_name: tournament.tournament_name, format: tournament.format, tournament_status: tournament.status,
+        roster1: roster.get(Number(m.team1_id)), roster2: roster.get(Number(m.team2_id)),
+      } as unknown as TournamentResult;
+      m.can_resolve = canResolve(result, uid, canManage);
+      m.can_correct = canManage && m.winner_team_id != null && !correctionBlock(result, matches as MatchLite[]);
+    });
 
     // Groups (only relevant for group_knockout)
     const groups = await executeQuery(
@@ -131,6 +147,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       tournament,
+      canManage,
       teams: enrichedTeams,
       matches,
       groups,

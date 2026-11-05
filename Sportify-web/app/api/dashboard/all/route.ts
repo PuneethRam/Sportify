@@ -200,7 +200,7 @@ export async function GET(req: Request) {
              FROM TournamentMatches tm
              JOIN Tournaments t ON tm.tournament_id = t.tournament_id
              WHERE (tm.team1_id IN (${gph}) OR tm.team2_id IN (${gph}))
-               AND tm.winner_team_id IS NOT NULL
+               AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
                AND t.tournament_type = 'singles'`,
             [...globalTeamIds, ...globalTeamIds, ...globalTeamIds]
           )
@@ -212,7 +212,7 @@ export async function GET(req: Request) {
              FROM TournamentMatches tm
              JOIN Tournaments t ON tm.tournament_id = t.tournament_id
              WHERE (tm.team1_id IN (${gph}) OR tm.team2_id IN (${gph}))
-               AND tm.winner_team_id IS NOT NULL
+               AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
                AND t.tournament_type = 'doubles'`,
             [...globalTeamIds, ...globalTeamIds, ...globalTeamIds]
           )
@@ -271,7 +271,7 @@ export async function GET(req: Request) {
            FROM TournamentMatches tm
            JOIN Tournaments t ON tm.tournament_id = t.tournament_id
            WHERE (tm.team1_id IN (${cph}) OR tm.team2_id IN (${cph}))
-             AND tm.winner_team_id IS NOT NULL
+             AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
              AND t.tournament_type = 'singles'
              AND t.clan_id = ?`,
           [...clanTeamIds, ...clanTeamIds, ...clanTeamIds, clanId]
@@ -282,7 +282,7 @@ export async function GET(req: Request) {
            FROM TournamentMatches tm
            JOIN Tournaments t ON tm.tournament_id = t.tournament_id
            WHERE (tm.team1_id IN (${cph}) OR tm.team2_id IN (${cph}))
-             AND tm.winner_team_id IS NOT NULL
+             AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
              AND t.tournament_type = 'doubles'
              AND t.clan_id = ?`,
           [...clanTeamIds, ...clanTeamIds, ...clanTeamIds, clanId]
