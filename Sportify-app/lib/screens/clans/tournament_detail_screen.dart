@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../services/api_service.dart';
-import '../../models/progress_model.dart' show parseRatingChanges;
+import '../../models/progress_model.dart' show formatRatingChange, parseRatingChanges;
 import '../../widgets/loading_screen.dart';
 import '../../widgets/rating_widgets.dart';
 import '../../widgets/share_card.dart';
@@ -195,6 +195,16 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       }
     }
     return (ids: ids, names: names);
+  }
+
+  /// A team's rating change in [changes]. Doubles partners move by the same
+  /// amount, so the first rated player stands for the team.
+  int? _teamRatingChange(Map<String, dynamic>? team, Map<String, int> changes) {
+    for (final p in List<Map>.from(team?['playersDetails'] ?? const [])) {
+      final d = changes[p['user_id']?.toString()];
+      if (d != null) return d;
+    }
+    return null;
   }
 
   String _shareMessage(String t1, String t2, bool t1Win, bool t2Win, String score) {
@@ -1169,7 +1179,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   // ── Brackets Tab (visual) ──────────────────────────────────────────────────
 
   Widget _buildBracketsTab(Set<int> locked) {
-    const cardH      = 104.0;
+    const cardH      = 108.0;
     const baseSlotH  = 140.0;
     const connectorW = 36.0;
     const roundW     = 200.0;
@@ -1355,6 +1365,21 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final mId      = (match['match_id'] as num?)?.toInt();
     final isLocked = mId != null && locked.contains(mId);
     final canEdit  = widget.isAdmin && _isOngoing && !isLocked;
+    final done     = wId != null;
+    final changes  = parseRatingChanges(match['rating_changes']);
+    final t1Change = done ? _teamRatingChange(team1, changes) : null;
+    final t2Change = done ? _teamRatingChange(team2, changes) : null;
+
+    Widget delta(int? d) {
+      if (d == null) return const SizedBox.shrink();
+      final color = d > 0 ? kColorEmerald : d < 0 ? kColorRose : kColorMuted;
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: Text(formatRatingChange(d),
+          semanticsLabel: 'Rating ${d >= 0 ? 'up' : 'down'} ${d.abs()}',
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: color)),
+      );
+    }
 
     return Positioned(
       top: top,
@@ -1381,6 +1406,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, fontWeight: t1Win ? FontWeight.w700 : FontWeight.w500,
                   color: t1Win ? kColorEmerald : kColorText))),
+              delta(t1Change),
               if (wins['team1'] != null)
                 Text('${wins['team1']}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
                   color: t1Win ? kColorEmerald : kColorMuted)),
@@ -1399,6 +1425,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, fontWeight: t2Win ? FontWeight.w700 : FontWeight.w500,
                   color: t2Win ? kColorEmerald : kColorText))),
+              delta(t2Change),
               if (wins['team2'] != null)
                 Text('${wins['team2']}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
                   color: t2Win ? kColorEmerald : kColorMuted)),
@@ -1407,9 +1434,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
           Container(height: 1, color: const Color(0x12000000)),
           // Score bar
           SizedBox(
-            height: 26,
+            height: 30,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.only(left: 8, right: 4),
               child: Row(children: [
                 Expanded(child: Text(
                   scoreStr.isNotEmpty ? scoreStr : 'Not played',
@@ -1418,6 +1445,20 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     fontStyle: scoreStr.isEmpty ? FontStyle.italic : FontStyle.normal,
                     color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.4)),
                 )),
+                // Same share card as the match list
+                if (done && mId != null)
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: ShareCardButton(
+                      kind: 'match',
+                      source: 'tournament',
+                      matchId: mId,
+                      message: _shareMessage(t1Name, t2Name, t1Win, t2Win, scoreStr.replaceAll('  ·  ', ', ')),
+                      color: kColorMuted,
+                      size: 14,
+                    ),
+                  ),
                 if (isLocked)
                   const Icon(Icons.lock_outline_rounded, size: 11, color: kColorMuted)
                 else if (canEdit)
