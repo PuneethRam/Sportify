@@ -220,11 +220,14 @@ function ClanDetailsContent() {
               </div>
               <div className="pb-0.5">
                 <h1 className="display-font font-bold text-2xl sm:text-4xl text-white tracking-wide leading-none">{clan.name}</h1>
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-sm text-slate-300">Global Rank</span>
-                  <span className="text-sm font-bold text-amber-400">#{clan.clan_rank}</span>
-                </div>
+                {/* New clans and academy batches are unranked (0) */}
+                {clan.clan_rank > 0 && (
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-sm text-slate-300">Global Rank</span>
+                    <span className="text-sm font-bold text-amber-400">#{clan.clan_rank}</span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-start gap-2 flex-shrink-0">

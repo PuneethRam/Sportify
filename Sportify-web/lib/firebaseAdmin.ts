@@ -5,7 +5,10 @@ import path from "path";
 if (!admin.apps.length) {
   try {
     const jsonPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    if (jsonPath) {
+    if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+      // Local end-to-end runs only: verify tokens from the Firebase Auth emulator
+      admin.initializeApp({ projectId: process.env.FIREBASE_ADMIN_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID });
+    } else if (jsonPath) {
       const resolved = path.isAbsolute(jsonPath)
         ? jsonPath
         : path.join(process.cwd(), jsonPath);

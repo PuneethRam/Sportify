@@ -3,7 +3,7 @@
 import "./globals.css";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2, Bell } from "lucide-react";
+import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2, Bell, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
@@ -182,6 +182,23 @@ function NavContent() {
   );
 }
 
+/**
+ * Pages read auth.currentUser / call fetchWithAuth as soon as they mount. On a
+ * reload or a direct link Firebase hasn't restored the sign-in yet, so hold
+ * the page until it has; otherwise the page loads empty or bounces to "/".
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24" aria-label="Loading">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuth = pathname === "/" || pathname === "/auth/login" || pathname === "/auth/signup" || pathname.startsWith("/i/") || pathname.startsWith("/s/");
@@ -214,7 +231,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </nav>
           <main className="md:ml-64 pt-14 md:pt-0 pb-24 md:pb-0 min-h-screen">
             <div className="p-4 md:p-6 max-w-7xl mx-auto">
-              {children}
+              <AuthGate>{children}</AuthGate>
             </div>
           </main>
         </AuthProvider>

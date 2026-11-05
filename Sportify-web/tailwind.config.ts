@@ -9,6 +9,10 @@ export default {
   ],
   theme: {
     extend: {
+      // Low opacities used across the app (bg-white/4, border-white/6, ...).
+      // Tailwind 3 only ships steps of 5, so without these the classes are
+      // silently dropped (e.g. light rows on dark cards).
+      opacity: { 2: "0.02", 3: "0.03", 4: "0.04", 6: "0.06", 8: "0.08", 12: "0.12", 18: "0.18" },
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",

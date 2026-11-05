@@ -16,6 +16,8 @@ import {
 // Define the shape of authentication context
 interface AuthContextType {
   user: User | null; // Firebase User or null
+  /** True until Firebase has restored (or ruled out) a saved sign-in. */
+  loading: boolean;
   login: (email: string, password: string) => Promise<UserCredential>;
   signup: (email: string, password: string) => Promise<UserCredential>;
   signInWithGoogle: () => Promise<UserCredential>; // 🔹 Google sign-in function
@@ -27,10 +29,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      setLoading(false);
       if (currentUser) identify(currentUser.uid);
       else resetAnalytics();
     });
@@ -55,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => signOut(auth);
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, signInWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, signInWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );
