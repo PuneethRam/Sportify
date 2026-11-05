@@ -3,7 +3,7 @@
 import "./globals.css";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2 } from "lucide-react";
+import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2, Bell } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
@@ -60,6 +60,11 @@ function NavContent() {
           <button onClick={toggleDarkMode} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Toggle theme">
             {darkMode ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
           </button>
+          {user && (
+            <Link href="/settings/notifications" className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Notification settings">
+              <Bell className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            </Link>
+          )}
           {user && (
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Sign out">
               <LogOut className="w-4 h-4 text-rose-500 dark:text-rose-400" />
@@ -132,6 +137,17 @@ function NavContent() {
                 ? <><Sun style={{width:16,height:16,flexShrink:0}} className="text-amber-400" /><span>Light Mode</span></>
                 : <><Moon style={{width:16,height:16,flexShrink:0}} /><span>Dark Mode</span></>}
             </button>
+            {user && (
+              <Link
+                href="/settings/notifications"
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  pathname.startsWith("/settings") ? "nav-active" : "text-slate-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Bell style={{width:16,height:16,flexShrink:0}} />
+                <span>Notifications</span>
+              </Link>
+            )}
             {user && (
               <button
                 onClick={handleLogout}
