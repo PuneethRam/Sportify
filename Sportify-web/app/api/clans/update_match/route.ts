@@ -11,7 +11,8 @@ import { notifyResultConfirmed, notifyResultSubmitted } from "@/lib/resultNotifi
 // POST: submit a clan match result.
 // A result submitted by a player stays pending until a player on the other
 // side confirms it (POST /api/clans/matches/confirm). A clan admin's
-// submission is confirmed immediately.
+// submission is confirmed immediately only if they didn't play in it; an
+// admin who played waits for the other side or a different admin.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -33,6 +34,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "All players must be members of this clan" }, { status: 400 });
   }
 
+  // Nobody confirms their own result
+  const confirmNow = admin && !players.includes(uid);
   const winner = determineWinner(score);
   const connection = await createConnection();
 
@@ -63,7 +66,7 @@ export async function POST(req: Request) {
       let pointsAwarded = 0;
       let ratingChanges: Record<string, number> = {};
 
-      if (admin) {
+      if (confirmNow) {
         const submission = await loadSubmission(connection, submissionId);
         const result = await finalizeSubmission(connection, submission!, uid);
         status = "confirmed";

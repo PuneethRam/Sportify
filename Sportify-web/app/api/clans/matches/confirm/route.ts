@@ -2,15 +2,18 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, isClanAdmin } from "@/lib/authz";
-import { finalizeSubmission, isOpponentOfSubmitter, loadSubmission, SubmissionConflict } from "@/lib/matchSubmissions";
+import {
+  canResolve, finalizeSubmission, isOpponentOfSubmitter, loadSubmission, playsIn, SubmissionConflict, teamsOf,
+} from "@/lib/matchSubmissions";
 import { notifyResultConfirmed, notifyResultDisputed } from "@/lib/resultNotifications";
 import { notifyOvertakes } from "@/lib/seasons";
 
 // POST /api/clans/matches/confirm
 // Body: { submissionId, action: "confirm" | "reject" }
 // A player on the other side from the submitter can confirm or dispute a
-// pending result. A clan admin can confirm (override) a pending or disputed
-// result, or mark it disputed.
+// pending result. A clan admin who did not play in it can confirm (override)
+// a pending or disputed result, or mark it disputed. An admin who played is
+// treated as a player, so they can't confirm their own result.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -30,18 +33,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "Result not found" }, { status: 404 });
       }
 
-      const admin = await isClanAdmin(uid, submission.clan_id);
-      const opponent = isOpponentOfSubmitter(submission, uid);
-      if (!admin && !opponent) {
+      if (submission.status === "confirmed") {
         await connection.rollback();
-        return forbidden("Only a player on the other side or a clan admin can confirm this result");
+        return NextResponse.json({ success: false, error: "This result is already confirmed" }, { status: 409 });
       }
 
-      // Opponents act on pending results; once disputed, only an admin decides.
-      const actionable = submission.status === "pending" || (admin && submission.status === "disputed");
-      if (!actionable) {
+      const admin = await isClanAdmin(uid, submission.clan_id);
+      const opponent = isOpponentOfSubmitter(submission, uid);
+      if (!canResolve(submission, uid, admin)) {
         await connection.rollback();
-        return NextResponse.json({ success: false, error: `This result is already ${submission.status}` }, { status: 409 });
+        if (admin && playsIn(teamsOf(submission), uid)) {
+          return forbidden("You played in this match, so the other side or a different admin has to confirm it");
+        }
+        // Opponents act on pending results; once disputed, only an admin who didn't play decides.
+        if (opponent) {
+          return NextResponse.json({ success: false, error: `This result is already ${submission.status}` }, { status: 409 });
+        }
+        return forbidden("Only a player on the other side or a clan admin can confirm this result");
       }
 
       if (action === "reject") {

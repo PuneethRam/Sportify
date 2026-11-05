@@ -19,7 +19,9 @@ type Row = {
   a1: string; a2: string; b1: string; b2: string;
   games: Game[];
 };
-type SavedResult = { submissionId: number; matchId: number; pointsAwarded: number; ratingChanges: Record<string, number> };
+type SavedResult = {
+  submissionId: number; status?: "confirmed" | "pending"; matchId: number | null; pointsAwarded: number; ratingChanges: Record<string, number>;
+};
 
 const GAMES = 3;
 const emptyGames = (): Game[] => Array.from({ length: GAMES }, () => ({ a: "", b: "" }));
@@ -179,6 +181,7 @@ function BulkEntryContent() {
   );
 
   const invalidCount = showErrors ? rows.filter(r => validate(r)).length : 0;
+  const pendingCount = saved ? saved.results.filter(r => r.status === "pending").length : 0;
 
   return (
     <div className="max-w-2xl mx-auto space-y-4 pb-36 animate-fade-up">
@@ -190,7 +193,7 @@ function BulkEntryContent() {
         </button>
         <div className="min-w-0">
           <h1 className="display-font font-bold text-2xl tracking-wide text-slate-800 dark:text-white">Record results</h1>
-          <p className="text-xs text-slate-400">Enter the class&apos;s matches and save them together. They count as confirmed.</p>
+          <p className="text-xs text-slate-400">Enter the class&apos;s matches and save them together. They count as confirmed, except matches you played in: the other side confirms those.</p>
         </div>
       </div>
 
@@ -204,6 +207,9 @@ function BulkEntryContent() {
               <p className="font-bold text-sm text-slate-800 dark:text-white">
                 {saved.results.length} result{saved.results.length !== 1 ? "s" : ""} saved
               </p>
+              {pendingCount > 0 && (
+                <span className="text-[11px] font-semibold text-amber-500">{pendingCount} waiting for the other side</span>
+              )}
               <Link href={`/clan/matches?clanId=${clanId}`} className="ml-auto text-xs font-semibold text-blue-500 hover:text-blue-400">View matches</Link>
             </div>
             <div className="space-y-2">
@@ -222,7 +228,12 @@ function BulkEntryContent() {
                       <span className="text-[10px] font-black text-slate-400 mr-2">VS</span>
                       {side(r.matchType === "singles" ? [r.b1] : [r.b1, r.b2])}
                     </div>
-                    <p className="text-slate-400 font-mono mt-0.5">{scoreOf(r.games)}</p>
+                    <p className="text-slate-400 font-mono mt-0.5">
+                      {scoreOf(r.games)}
+                      {saved.results[i]?.status === "pending" && (
+                        <span className="ml-2 font-sans font-semibold text-amber-500">You played: waiting for the other side to confirm</span>
+                      )}
+                    </p>
                   </div>
                 );
               })}

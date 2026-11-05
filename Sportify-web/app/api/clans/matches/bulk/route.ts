@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { areClanMembers, forbidden, isClanAdmin } from "@/lib/authz";
-import { finalizeSubmission, insertSubmission, loadSubmission, MatchEntry, parseMatchEntry } from "@/lib/matchSubmissions";
-import { notifyResultConfirmed } from "@/lib/resultNotifications";
+import { finalizeSubmission, insertSubmission, loadSubmission, MatchEntry, parseMatchEntry, playsIn } from "@/lib/matchSubmissions";
+import { notifyResultConfirmed, notifyResultSubmitted } from "@/lib/resultNotifications";
 import { notifyOvertakes } from "@/lib/seasons";
 import { MatchSource } from "@/lib/ratings";
 
@@ -17,8 +17,9 @@ const MAX_RESULTS = 60;
 // results from a class in one go. Each goes through the normal
 // MatchSubmissions → confirmed path with the coach as submitter and
 // resolver (entry_method = 'bulk'), so it counts as confirmed immediately and
-// is audited the same way as a single admin entry. All or nothing: if one
-// result is invalid, nothing is saved.
+// is audited the same way as a single admin entry. A result the coach played
+// in is saved as pending instead, and the other side (or a different admin)
+// confirms it. All or nothing: if one result is invalid, nothing is saved.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -50,16 +51,26 @@ export async function POST(req: Request) {
   const connection = await createConnection();
   try {
     await connection.beginTransaction();
-    const saved: { submissionId: number; matchId: number; source: MatchSource; points: number; ratingChanges: Record<string, number> }[] = [];
+    const saved: {
+      submissionId: number; status: "confirmed" | "pending"; matchId: number | null; source: MatchSource;
+      points: number; ratingChanges: Record<string, number>;
+    }[] = [];
     try {
       for (const entry of entries) {
         const submissionId = await insertSubmission(connection, clanId, entry, uid, { entryMethod: "bulk" });
+        const source: MatchSource = entry.matchType === "singles" ? "clan_singles" : "clan_doubles";
+        // A coach playing in their own class waits for the other side like anyone else
+        if (playsIn(entry, uid)) {
+          saved.push({ submissionId, status: "pending", matchId: null, source, points: 0, ratingChanges: {} });
+          continue;
+        }
         const submission = await loadSubmission(connection, submissionId);
         const result = await finalizeSubmission(connection, submission!, uid);
         saved.push({
           submissionId,
+          status: "confirmed",
           matchId: result.matchId,
-          source: entry.matchType === "singles" ? "clan_singles" : "clan_doubles",
+          source,
           points: result.points,
           ratingChanges: Object.fromEntries(Object.entries(result.ratingChanges).map(([u, d]) => [u, Math.round(d)])),
         });
@@ -72,14 +83,21 @@ export async function POST(req: Request) {
 
     for (const s of saved) {
       const submission = await loadSubmission(connection, s.submissionId);
-      if (submission) await notifyResultConfirmed(submission, uid);
+      if (!submission) continue;
+      if (s.status === "confirmed") await notifyResultConfirmed(submission, uid);
+      else await notifyResultSubmitted(submission);
     }
-    await notifyOvertakes(clanId, saved.map(s => ({ source: s.source, matchId: s.matchId })));
+    const confirmed = saved.filter(s => s.status === "confirmed");
+    if (confirmed.length) await notifyOvertakes(clanId, confirmed.map(s => ({ source: s.source, matchId: s.matchId! })));
 
     return NextResponse.json({
       success: true,
       recorded: saved.length,
-      results: saved.map(({ submissionId, matchId, points, ratingChanges }) => ({ submissionId, matchId, pointsAwarded: points, ratingChanges })),
+      confirmed: confirmed.length,
+      pending: saved.length - confirmed.length,
+      results: saved.map(({ submissionId, status, matchId, points, ratingChanges }) => (
+        { submissionId, status, matchId, pointsAwarded: points, ratingChanges }
+      )),
     }, { status: 201 });
   } catch (error) {
     console.error("Error recording batch results:", error);
