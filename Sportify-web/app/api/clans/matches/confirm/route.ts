@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
-import { forbidden, isClanAdmin } from "@/lib/authz";
+import { forbidden } from "@/lib/authz";
 import {
-  canResolve, finalizeSubmission, isOpponentOfSubmitter, loadSubmission, playsIn, SubmissionConflict, teamsOf,
+  canResolve, finalizeSubmission, isOpponentOfSubmitter, isResultAdmin, loadSubmission, playsIn, SubmissionConflict, teamsOf,
 } from "@/lib/matchSubmissions";
 import { notifyResultConfirmed, notifyResultDisputed } from "@/lib/resultNotifications";
 import { notifyOvertakes } from "@/lib/seasons";
@@ -13,7 +13,8 @@ import { notifyOvertakes } from "@/lib/seasons";
 // A player on the other side from the submitter can confirm or dispute a
 // pending result. A clan admin who did not play in it can confirm (override)
 // a pending or disputed result, or mark it disputed. An admin who played is
-// treated as a player, so they can't confirm their own result.
+// treated as a player, so they can't confirm their own result. For a
+// tournament result the tournament host counts as an admin too.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "This result is already confirmed" }, { status: 409 });
       }
 
-      const admin = await isClanAdmin(uid, submission.clan_id);
+      const admin = await isResultAdmin(uid, submission, connection);
       const opponent = isOpponentOfSubmitter(submission, uid);
       if (!canResolve(submission, uid, admin)) {
         await connection.rollback();
@@ -49,7 +50,9 @@ export async function POST(req: Request) {
         if (opponent) {
           return NextResponse.json({ success: false, error: `This result is already ${submission.status}` }, { status: 409 });
         }
-        return forbidden("Only a player on the other side or a clan admin can confirm this result");
+        return forbidden(submission.tournament_match_id
+          ? "Only a player on the other side or a tournament host / clan admin can confirm this result"
+          : "Only a player on the other side or a clan admin can confirm this result");
       }
 
       if (action === "reject") {
@@ -65,9 +68,7 @@ export async function POST(req: Request) {
       const result = await finalizeSubmission(connection, submission, uid);
       await connection.commit();
       await notifyResultConfirmed(submission, uid);
-      await notifyOvertakes(submission.clan_id, [{
-        source: submission.match_type === "singles" ? "clan_singles" : "clan_doubles", matchId: result.matchId,
-      }]);
+      await notifyOvertakes(submission.clan_id, [{ source: result.source, matchId: result.matchId }]);
       return NextResponse.json({
         success: true, status: "confirmed", matchId: result.matchId, pointsAwarded: result.points,
         ratingChanges: Object.fromEntries(Object.entries(result.ratingChanges).map(([u, d]) => [u, Math.round(d)])),

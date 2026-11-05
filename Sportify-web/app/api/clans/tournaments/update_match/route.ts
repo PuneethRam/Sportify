@@ -1,22 +1,23 @@
 import { NextResponse } from "next/server";
 import { createConnection } from "@/lib/db";
-import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, getManagedTournament } from "@/lib/authz";
-import { applyResult } from "@/lib/scoring";
-import { fromTournamentRow, TOURNAMENT_SELECT } from "@/lib/ratings";
+import { insertSubmission, loadSubmission, playsIn } from "@/lib/matchSubmissions";
+import { notifyResultSubmitted } from "@/lib/resultNotifications";
 import { notifyOvertakes } from "@/lib/seasons";
-
-function getStageName(matchCount: number, roundNumber: number, position: number): string {
-  if (matchCount === 1) return "Final";
-  if (matchCount === 2) return `Semi Final - Match ${position + 1}`;
-  if (matchCount === 4) return `Quarter Final - Match ${position + 1}`;
-  return `Round ${roundNumber} - Match ${position + 1}`;
-}
+import {
+  loadTournamentMatch, openTournamentSubmission, recordTournamentResult, resolveLineup,
+} from "@/lib/tournamentResults";
 
 const roundChanges = (a: { ratingChanges: Record<string, number> } | null) =>
   Object.fromEntries(Object.entries(a?.ratingChanges ?? {}).map(([u, d]) => [u, Math.round(d)]));
 
+// POST /api/clans/tournaments/update_match
+// Body: { tournamentId, matchId, winner_team_id, score_details, team1_players?, team2_players? }
+// The tournament host or a clan admin records a result. If they didn't play
+// in the match it counts at once; if they did it stays pending (status
+// "pending", submissionId) until a player on the other side or a different
+// host / admin confirms it through /api/clans/matches/confirm.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -32,125 +33,75 @@ export async function POST(req: Request) {
   if (!tournament) return forbidden("Only the tournament host or a clan admin can record results");
 
   const connection = await createConnection();
+  const bad = async (status: number, error: string) => {
+    await connection.rollback();
+    return NextResponse.json({ success: false, error }, { status });
+  };
 
   try {
     await connection.beginTransaction();
 
-    const [existing] = await connection.execute<RowDataPacket[]>(
-      `SELECT team1_id, team2_id, winner_team_id FROM TournamentMatches WHERE match_id = ? AND tournament_id = ? FOR UPDATE`,
-      [matchId, tournamentId]
-    );
-    if (!existing.length) {
-      await connection.rollback();
-      return NextResponse.json({ success: false, error: "Match not found" }, { status: 404 });
-    }
+    const match = await loadTournamentMatch(connection, tournamentId, matchId, true);
+    if (!match) return await bad(404, "Match not found");
     // A recorded result has already moved the leaderboard and the bracket;
     // recording it again would count it twice.
-    if (existing[0].winner_team_id !== null) {
-      await connection.rollback();
-      return NextResponse.json({ success: false, error: "This match already has a result" }, { status: 409 });
-    }
-    const team1Id = existing[0].team1_id;
-    if (winner_team_id && winner_team_id !== team1Id && winner_team_id !== existing[0].team2_id) {
-      await connection.rollback();
-      return NextResponse.json({ success: false, error: "Winner must be one of the two teams" }, { status: 400 });
+    if (match.winner_team_id !== null) return await bad(409, "This match already has a result");
+    if (await openTournamentSubmission(connection, matchId)) return await bad(409, "This result is waiting for confirmation");
+    if (winner_team_id && winner_team_id !== match.team1_id && winner_team_id !== match.team2_id) {
+      return await bad(400, "Winner must be one of the two teams");
     }
 
-    // Serialize player selections if provided
-    const t1Players = Array.isArray(team1_players) ? JSON.stringify(team1_players) : null;
-    const t2Players = Array.isArray(team2_players) ? JSON.stringify(team2_players) : null;
+    const needed = tournament.tournament_type === "doubles" ? 2 : 1;
+    const team1 = resolveLineup(team1_players, match.team1_players, match.roster1, needed);
+    const team2 = resolveLineup(team2_players, match.team2_players, match.roster2, needed);
+    if (typeof team1 === "string") return await bad(400, team1);
+    if (typeof team2 === "string") return await bad(400, team2);
 
-    // Update match score, winner, and player selections
-    await connection.execute(
-      `UPDATE TournamentMatches
-       SET winner_team_id = ?, score_details = ?, recorded_at = NOW(),
-           team1_players = COALESCE(?, team1_players),
-           team2_players = COALESCE(?, team2_players)
-       WHERE match_id = ? AND tournament_id = ?`,
-      [winner_team_id ?? null, score_details ?? null, t1Players, t2Players, matchId, tournamentId]
-    );
+    const played = playsIn({ team1: team1 ?? [], team2: team2 ?? [] }, uid);
+    if (winner_team_id && !played &&
+        ((match.roster1.includes(uid) && !team1) || (match.roster2.includes(uid) && !team2))) {
+      return await bad(400, "You're on one of these teams: pick who played so we know whether you did");
+    }
 
-    const format: string = tournament.format ?? "";
-    const clanId: number = tournament.clan_id;
-
-    // ── Leaderboard + rating update, from the players stored on the match ──
-    // (the same rule lib/ratings.ts uses when it replays history)
-    let applied: Awaited<ReturnType<typeof applyResult>> | null = null;
-    if (winner_team_id) {
-      const [[row]] = await connection.execute<RowDataPacket[]>(
-        `${TOURNAMENT_SELECT} AND tm.match_id = ?`,
-        [matchId]
-      );
-      const rated = fromTournamentRow(row);
-      if (rated.team1.length && rated.team2.length) {
-        applied = await applyResult(connection, {
-          clanId,
-          format: rated.format,
-          team1: rated.team1,
-          team2: rated.team2,
-          score: score_details ?? "",
-          winner: rated.winner,
-          match: { source: "tournament", matchId: rated.matchId, playedAt: rated.playedAt },
-        });
+    // ── The recorder played: pending until the other side or another admin confirms ──
+    if (winner_team_id && played) {
+      if (!team1 || !team2) return await bad(400, "Pick who played for both teams so the other side can confirm");
+      let scoreDetails: { score: string } & Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(score_details);
+        scoreDetails = parsed && typeof parsed === "object" && typeof parsed.score === "string"
+          ? parsed : { score: String(score_details ?? "") };
+      } catch {
+        scoreDetails = { score: String(score_details ?? "") };
       }
-    }
-
-    // Advance bracket for knockout and group_knockout knockout phase
-    if (winner_team_id && (format === "knockout" || format === "group_knockout" || format === "round_robin")) {
-      const [matchRows] = await connection.execute<RowDataPacket[]>(
-        `SELECT round_number, phase FROM TournamentMatches WHERE match_id = ?`,
-        [matchId]
+      const submissionId = await insertSubmission(
+        connection, tournament.clan_id,
+        { matchType: needed === 2 ? "doubles" : "singles", team1, team2, scoreDetails },
+        uid,
+        { entryMethod: "admin", tournament: { matchId: Number(matchId), winner: winner_team_id === match.team1_id ? "team1" : "team2" } }
       );
-
-      if (matchRows.length > 0) {
-        const { round_number, phase } = matchRows[0];
-
-        // For group_knockout and round_robin, only advance bracket in the knockout phase
-        if ((format === "group_knockout" || format === "round_robin") && phase !== "knockout") {
-          await connection.commit();
-          if (applied) await notifyOvertakes(clanId, [{ source: "tournament", matchId: Number(matchId) }]);
-          return NextResponse.json({ success: true, ratingChanges: roundChanges(applied) });
-        }
-
-        const [pending] = await connection.execute<RowDataPacket[]>(
-          `SELECT COUNT(*) AS cnt FROM TournamentMatches
-           WHERE tournament_id = ? AND round_number = ? AND winner_team_id IS NULL`,
-          [tournamentId, round_number]
-        );
-
-        if (pending[0].cnt === 0) {
-          const [roundMatches] = await connection.execute<RowDataPacket[]>(
-            `SELECT winner_team_id, match_position FROM TournamentMatches
-             WHERE tournament_id = ? AND round_number = ?
-             ORDER BY match_position ASC`,
-            [tournamentId, round_number]
-          );
-
-          if (roundMatches.length > 1) {
-            const nextRound = round_number + 1;
-            const nextMatchCount = Math.floor(roundMatches.length / 2);
-
-            for (let i = 0; i < roundMatches.length; i += 2) {
-              const team1 = roundMatches[i].winner_team_id;
-              const team2 = roundMatches[i + 1]?.winner_team_id ?? null;
-              const pos = Math.floor(i / 2);
-              const stageName = getStageName(nextMatchCount, nextRound, pos);
-
-              await connection.execute<ResultSetHeader>(
-                `INSERT INTO TournamentMatches
-                 (tournament_id, team1_id, team2_id, match_stage, round_number, match_position, phase)
-                 VALUES (?, ?, ?, ?, ?, ?, 'knockout')`,
-                [tournamentId, team1, team2, stageName, nextRound, pos]
-              );
-            }
-          }
-        }
-      }
+      await connection.commit();
+      const submission = await loadSubmission(connection, submissionId);
+      if (submission) await notifyResultSubmitted(submission);
+      return NextResponse.json({ success: true, status: "pending", submissionId, ratingChanges: {} }, { status: 201 });
     }
+
+    // ── The recorder didn't play: counts at once ──
+    const applied = await recordTournamentResult(connection, {
+      tournamentId: Number(tournamentId),
+      matchId: Number(matchId),
+      clanId: tournament.clan_id,
+      format: tournament.format ?? "",
+      winnerTeamId: winner_team_id ?? null,
+      scoreDetails: score_details ?? null,
+      team1Players: team1,
+      team2Players: team2,
+      recordedBy: uid,
+    });
 
     await connection.commit();
-    if (applied) await notifyOvertakes(clanId, [{ source: "tournament", matchId: Number(matchId) }]);
-    return NextResponse.json({ success: true, ratingChanges: roundChanges(applied) });
+    if (applied) await notifyOvertakes(tournament.clan_id, [{ source: "tournament", matchId: Number(matchId) }]);
+    return NextResponse.json({ success: true, status: "confirmed", ratingChanges: roundChanges(applied) });
   } catch (error) {
     await connection.rollback();
     console.error("Error updating tournament match:", error);
