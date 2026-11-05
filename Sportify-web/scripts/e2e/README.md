@@ -21,6 +21,7 @@ MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=test MYSQL_DATABASE=sportify
 curl -X POST -H "Authorization: Bearer owner" -H "Content-Type: application/json" \
   http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-sportify/accounts \
   -d '{"localId":"ops-founder","email":"ops@sportify.test","password":"pilot-pass-1"}'
+mysql -h127.0.0.1 -uroot -ptest sportify_e2e -e "INSERT INTO Users (user_id, name, email) VALUES ('ops-founder', 'Sportify Ops', 'ops@sportify.test')"
 
 # 4. The web app on :3210, pointed at both
 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=test MYSQL_DATABASE=sportify_e2e MYSQL_SSL=false \
@@ -30,7 +31,7 @@ NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=demo-sportify.firebaseapp.com NEXT_PUBLIC_FIREB
 PLATFORM_ADMIN_UIDS=ops-founder npx next dev -p 3210
 
 # 5. The walk (uses the installed Google Chrome)
-npm i --no-save playwright-core && node scripts/e2e/coach-walk.js
+npm i --no-save playwright-core && node scripts/e2e/coach-walk.mjs
 ```
 
 Start from an empty database and emulator each time (the walk signs up fixed emails).

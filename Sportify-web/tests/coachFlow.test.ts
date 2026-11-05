@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { executeQuery } from "@/lib/db";
 import { loadMetrics } from "@/lib/metrics";
 import { call, uniq } from "./helpers";
 
@@ -82,5 +83,13 @@ describe("coach first-week flow", () => {
     // The four students are this week's new active competitors; the coach isn't
     const wacAfter = (await loadMetrics(1)).weeks[0].wac;
     expect(wacAfter - wacBefore).toBe(4);
+  });
+
+  it("profile creation is idempotent, so Google sign-in can call it every time", async () => {
+    const uid = uniq("google");
+    expect((await call(addUser.POST, { uid, body: { name: "Divya R", email: `${uid}@test.local` } })).status).toBe(200);
+    expect((await call(addUser.POST, { uid, body: { name: "Google User", email: `${uid}@test.local` } })).status).toBe(200);
+    const [row] = await executeQuery(`SELECT name FROM Users WHERE user_id = ?`, [uid]) as { name: string }[];
+    expect(row.name).toBe("Divya R");
   });
 });

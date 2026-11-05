@@ -1,7 +1,7 @@
 // SPO-6: coach first-week flow through the web app, headless Chrome.
 // Local stack: next dev (port 3210) + Firebase Auth emulator + MySQL sportify_e2e.
-const { chromium } = require('playwright-core');
-const fs = require('fs');
+import { chromium } from 'playwright-core';
+import fs from 'node:fs';
 const BASE = 'http://localhost:3210';
 const OUT = process.env.SHOTS_DIR ?? '/tmp/sportify-e2e/shots';
 fs.mkdirSync(OUT, { recursive: true });
@@ -84,12 +84,10 @@ async function signUp(page, name, email) {
     });
   }
 
-  let batchPath;
   await as('coach', async page => {
     await go(page, '/org/1');
     await page.click('text=Manage');
     await waitFor(page, u => u.includes('/clan/'));
-    batchPath = new URL(page.url()).pathname + new URL(page.url()).search;
     await shot(page, 'coach-batch-page');
     await page.click('text=Record results');
     await waitFor(page, u => u.includes('/bulk'));

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Loader2,ChevronRight, CheckCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { nextPath, useWithNext } from "@/lib/nextPath";
+import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
 export default function LoginPage() {
   const { login, signInWithGoogle } = useAuth();
@@ -35,7 +36,13 @@ export default function LoginPage() {
     setGoogleLoading(true);
     setError(null);
     try {
-      await signInWithGoogle();
+      const { user } = await signInWithGoogle();
+      // First Google sign-in without signing up first: create the profile
+      await fetchWithAuth("/api/addUser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: user.displayName || "Google User", email: user.email }),
+      });
       router.push(nextPath());
     } catch (error) {
       console.log(error);

@@ -15,7 +15,8 @@ export async function POST(req: Request) {
     connection = await createConnection();
 
     await connection.execute(
-      "INSERT INTO Users (user_id, name, email) VALUES (?, ?, ?)",
+      // Idempotent: Google sign-in calls this every time; keep the existing profile
+      "INSERT INTO Users (user_id, name, email) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = user_id",
       [uid, name, email]
     );
 
