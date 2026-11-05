@@ -3,13 +3,13 @@ import { RowDataPacket } from "mysql2";
 import { executeQuery } from "@/lib/db";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, isClanAdmin, isClanMember } from "@/lib/authz";
-import { isOpponentOfSubmitter, Submission, teamsOf } from "@/lib/matchSubmissions";
+import { canResolve, Submission, teamsOf } from "@/lib/matchSubmissions";
 import { parseGames } from "@/lib/scoring";
 
 // GET /api/clans/matches/pending?clanId=
 // Unconfirmed results in a clan. Members see the ones they play in (with
 // canConfirm set when they're on the other side from the submitter); clan
-// admins see all of them and can confirm any.
+// admins see all of them and can confirm any they didn't play in.
 export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
         team2Players:    team2.map(player),
         winner:          r.winner,
         submittedAt:     r.submitted_at,
-        canConfirm:      admin || (r.status === "pending" && isOpponentOfSubmitter(r, uid)),
+        canConfirm:      canResolve(r, uid, admin),
       };
     });
 

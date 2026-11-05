@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /**
  * `next` if it is a path on `origin`, else null. Resolving with the URL
  * parser (instead of checking the string) is what makes this safe: browsers
@@ -25,4 +27,15 @@ export function nextPath(fallback = "/dashboard") {
 export function withNext(href: string) {
   const next = nextPath("");
   return next ? `${href}?next=${encodeURIComponent(next)}` : href;
+}
+
+/**
+ * withNext() for a link rendered on the page. The server has no ?next= to
+ * see, and React keeps the server's href after hydration, so add it after
+ * mount instead of during render.
+ */
+export function useWithNext(href: string) {
+  const [link, setLink] = useState(href);
+  useEffect(() => setLink(withNext(href)), [href]);
+  return link;
 }

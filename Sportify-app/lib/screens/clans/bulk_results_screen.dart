@@ -124,7 +124,7 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
   bool _savedAny = false;
 
   /// After a successful save: the rows that were sent and the server results.
-  List<({BulkRow row, Map<String, int> changes})>? _summary;
+  List<({BulkRow row, Map<String, int> changes, bool pending})>? _summary;
 
   @override
   void initState() {
@@ -137,7 +137,7 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
     for (final r in _rows) {
       r.dispose();
     }
-    for (final s in _summary ?? const <({BulkRow row, Map<String, int> changes})>[]) {
+    for (final s in _summary ?? const <({BulkRow row, Map<String, int> changes, bool pending})>[]) {
       s.row.dispose();
     }
     super.dispose();
@@ -249,6 +249,8 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
               changes: i < results.length
                   ? parseRatingChanges(results[i]['ratingChanges'])
                   : const <String, int>{},
+              // The coach played in it: the other side has to confirm
+              pending: i < results.length && results[i]['status'] == 'pending',
             ),
         ];
         // Sent rows now belong to the summary; free the blank leftovers
@@ -418,6 +420,7 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
   Widget _buildSummary() {
     final s = _summary!;
     String side(List<String?> ids) => ids.map((id) => _names[id] ?? 'Player').join(' & ');
+    final pendingCount = s.where((r) => r.pending).length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
@@ -435,8 +438,12 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
               Text(s.length == 1 ? '1 result recorded' : '${s.length} results recorded',
                   style: const TextStyle(color: kColorText, fontWeight: FontWeight.w800, fontSize: 16)),
               const SizedBox(height: 2),
-              const Text('Confirmed and counted. Players have been notified.',
-                  style: TextStyle(color: kColorMuted, fontSize: 12)),
+              Text(
+                  pendingCount == 0
+                      ? 'Confirmed and counted. Players have been notified.'
+                      : '$pendingCount you played in will count once the other side confirms. '
+                          'The rest are confirmed and counted.',
+                  style: const TextStyle(color: kColorMuted, fontSize: 12)),
             ])),
           ]),
         ),
@@ -461,6 +468,11 @@ class _BulkResultsScreenState extends State<BulkResultsScreen> {
               const SizedBox(height: 4),
               Text('${side(s[i].row.team1)}  vs  ${side(s[i].row.team2)}',
                   style: const TextStyle(color: kColorText, fontSize: 13, fontWeight: FontWeight.w600)),
+              if (s[i].pending) ...[
+                const SizedBox(height: 6),
+                const Text('You played: waiting for the other side to confirm',
+                    style: TextStyle(color: kColorAmber, fontSize: 12, fontWeight: FontWeight.w600)),
+              ],
               if (s[i].changes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 RatingChangeRow(

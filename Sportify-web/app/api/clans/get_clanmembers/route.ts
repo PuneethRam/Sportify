@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { RowDataPacket } from 'mysql2';
 import { executeQuery } from '@/lib/db'; // Import the executeQuery helper
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
 
-  const searchParams = req.nextUrl.searchParams;
+  const searchParams = new URL(req.url).searchParams;
   const clanId = searchParams.get('clanId');
   
   if (!clanId) {

@@ -6,7 +6,7 @@ import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import { useRouter } from "next/navigation";
 import { Loader2, ChevronRight, CheckCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
-import { nextPath, withNext } from "@/lib/nextPath";
+import { nextPath, useWithNext } from "@/lib/nextPath";
 import { track } from "@/lib/track";
 
 export default function SignupPage() {
@@ -18,6 +18,7 @@ export default function SignupPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const switchLink = useWithNext("/auth/login");
 
   // Email/Password Signup
   const handleSignup = async () => {
@@ -196,7 +197,7 @@ export default function SignupPage() {
           <p className="text-gray-600 dark:text-gray-400">
             Already have an account?{" "}
             <a 
-              href={withNext("/auth/login")} 
+              href={switchLink} 
               className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
             >
               Sign in

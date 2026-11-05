@@ -3,7 +3,7 @@
 import "./globals.css";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2 } from "lucide-react";
+import { LayoutDashboard, Users, Sun, Moon, LogOut, Zap, Handshake, Building2, Bell, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
@@ -60,6 +60,11 @@ function NavContent() {
           <button onClick={toggleDarkMode} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Toggle theme">
             {darkMode ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
           </button>
+          {user && (
+            <Link href="/settings/notifications" className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Notification settings">
+              <Bell className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            </Link>
+          )}
           {user && (
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors" aria-label="Sign out">
               <LogOut className="w-4 h-4 text-rose-500 dark:text-rose-400" />
@@ -133,6 +138,17 @@ function NavContent() {
                 : <><Moon style={{width:16,height:16,flexShrink:0}} /><span>Dark Mode</span></>}
             </button>
             {user && (
+              <Link
+                href="/settings/notifications"
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  pathname.startsWith("/settings") ? "nav-active" : "text-slate-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Bell style={{width:16,height:16,flexShrink:0}} />
+                <span>Notifications</span>
+              </Link>
+            )}
+            {user && (
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-400/5 transition-all"
@@ -164,6 +180,23 @@ function NavContent() {
       </div>
     </>
   );
+}
+
+/**
+ * Pages read auth.currentUser / call fetchWithAuth as soon as they mount. On a
+ * reload or a direct link Firebase hasn't restored the sign-in yet, so hold
+ * the page until it has; otherwise the page loads empty or bounces to "/".
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24" aria-label="Loading">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -198,7 +231,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </nav>
           <main className="md:ml-64 pt-14 md:pt-0 pb-24 md:pb-0 min-h-screen">
             <div className="p-4 md:p-6 max-w-7xl mx-auto">
-              {children}
+              <AuthGate>{children}</AuthGate>
             </div>
           </main>
         </AuthProvider>

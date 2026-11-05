@@ -9,20 +9,21 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (user === null) {
-      
+    // Wait for Firebase to restore a saved sign-in before deciding: on a page
+    // reload `user` is null for a moment even when the user is signed in.
+    if (!loading && user === null) {
       router.push("/"); // Redirect to login if not authenticated
     }
-  }, [user, router]);
+  }, [user, loading, router]);
 
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen text-lg">
-        Redirecting to login...
+        {loading ? "Loading..." : "Redirecting to login..."}
       </div>
     );
   }

@@ -8,6 +8,11 @@ import { applyResult, determineWinner, MatchFormat, parseGames, Side } from "@/l
  *   submit (player or admin) ─► pending ─► confirmed  (opponent or clan admin)
  *                                  └─────► disputed   (opponent rejects; a clan admin can still confirm)
  *
+ * A result is confirmed on entry only when the person entering it is a clan
+ * admin who did not play in it (a coach recording a class). Nobody confirms
+ * their own result: an admin who played goes through the pending path like
+ * any player, and only the other side or a different admin can confirm it.
+ *
  * Only finalizeSubmission() writes the InternalSinglesMatches /
  * InternalDoublesMatches row and touches ClanLeaderboard, so every existing
  * stats query over those tables only ever sees confirmed results.
@@ -101,6 +106,22 @@ export function submitterSide(s: Submission): Side | null {
   if (team1.includes(s.submitted_by)) return "team1";
   if (team2.includes(s.submitted_by)) return "team2";
   return null;
+}
+
+/** Whether `uid` played in this result, on either side. */
+export function playsIn(s: Pick<MatchEntry, "team1" | "team2">, uid: string): boolean {
+  return s.team1.includes(uid) || s.team2.includes(uid);
+}
+
+/**
+ * Who may confirm or dispute a submission: a player on the other side from
+ * the submitter while it is pending, or a clan admin who did not play in it
+ * (pending or disputed). An admin who played is treated as a player, so
+ * nobody can confirm their own result.
+ */
+export function canResolve(s: Submission, uid: string, isAdmin: boolean): boolean {
+  if (isAdmin && !playsIn(teamsOf(s), uid)) return s.status === "pending" || s.status === "disputed";
+  return s.status === "pending" && isOpponentOfSubmitter(s, uid);
 }
 
 /** A player on the other side from the submitter. If the submitter didn't play, any player. */

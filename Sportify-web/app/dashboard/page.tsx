@@ -401,7 +401,7 @@ function PlayerDashboard({ userData, globalTournaments, selectedClan, setSelecte
             {[
               { label: "Matches",  value: totalPlayed },
               { label: "Win rate", value: `${overallPct}%` },
-              { label: "Streak",   value: userData.currentStreak > 0 ? `${userData.currentStreak} 🔥` : userData.currentStreak },
+              { label: "Win streak", value: userData.currentStreak > 0 ? `${userData.currentStreak} 🔥` : userData.currentStreak },
             ].map(({ label, value }) => (
               <div key={label} className="flex flex-col items-center gap-0.5 px-2">
                 <span className="text-white font-black text-2xl leading-none"
@@ -480,7 +480,7 @@ function PlayerDashboard({ userData, globalTournaments, selectedClan, setSelecte
                 <Flame className="w-5 h-5 text-orange-500" />
               </div>
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Streak</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Win streak</p>
                 <p className="font-black text-2xl text-orange-500 leading-none"
                   style={{ fontVariantNumeric: "tabular-nums" }}>{userData.currentStreak}
                   <span className="text-sm font-normal text-slate-400 ml-1">W</span></p>
@@ -491,7 +491,7 @@ function PlayerDashboard({ userData, globalTournaments, selectedClan, setSelecte
                 <Medal className="w-5 h-5 text-sky-500" />
               </div>
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Best ever</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Best win streak</p>
                 <p className="font-black text-2xl text-sky-500 leading-none"
                   style={{ fontVariantNumeric: "tabular-nums" }}>{userData.bestStreak}
                   <span className="text-sm font-normal text-slate-400 ml-1">W</span></p>
