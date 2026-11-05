@@ -2,10 +2,26 @@ import admin from "firebase-admin";
 import fs from "fs";
 import path from "path";
 
+/**
+ * Whether to trust Firebase Auth emulator tokens: local end-to-end runs only,
+ * which must opt in with SPORTIFY_E2E=1, and never on Netlify. firebase-admin
+ * skips token signature checks whenever FIREBASE_AUTH_EMULATOR_HOST is set, so
+ * a stray value anywhere else is removed before any token is verified.
+ */
+export function emulatorAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  return !!env.FIREBASE_AUTH_EMULATOR_HOST && env.SPORTIFY_E2E === "1" && !env.NETLIFY;
+}
+
+const useEmulator = emulatorAllowed();
+if (process.env.FIREBASE_AUTH_EMULATOR_HOST && !useEmulator) {
+  console.error("[Firebase Admin] Ignoring FIREBASE_AUTH_EMULATOR_HOST: emulator tokens are only trusted with SPORTIFY_E2E=1, off Netlify.");
+  delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
+}
+
 if (!admin.apps.length) {
   try {
     const jsonPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    if (useEmulator) {
       // Local end-to-end runs only: verify tokens from the Firebase Auth emulator
       admin.initializeApp({ projectId: process.env.FIREBASE_ADMIN_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID });
     } else if (jsonPath) {

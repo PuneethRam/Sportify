@@ -13,7 +13,8 @@ import { executeQuery } from "@/lib/db";
  * triggered it. Call it after the triggering transaction has committed.
  *
  * `route` is the mobile app path to open when the notification is tapped
- * (go_router paths: /clans/<id>, /find/<id>, /academy/<orgId>).
+ * (go_router paths: /clans/<id>, /clans/<id>/tournament/<tournamentId>,
+ * /find/<id>, /academy/<orgId>).
  */
 
 export const CATEGORIES = ["results", "sessions", "announcements", "invites", "streaks", "seasons"] as const;

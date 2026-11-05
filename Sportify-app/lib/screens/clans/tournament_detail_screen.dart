@@ -92,6 +92,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   bool _generatingKO   = false;
   bool _advancingToKO  = false;
   bool _tabInitialized = false;
+  String? _resolvingId;
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -399,6 +400,78 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     } finally {
       if (mounted) setState(() => _advancingToKO = false);
     }
+  }
+
+  // ── Results waiting for confirmation ──────────────────────────────────────
+  // A host or admin who played in a match records it as pending; it counts
+  // once a player on the other side or another host / admin confirms it.
+
+  Map<String, dynamic>? _pendingOf(Map<String, dynamic> match) {
+    final p = match['pending_result'];
+    return p is Map ? Map<String, dynamic>.from(p) : null;
+  }
+
+  Future<void> _resolvePending(Map<String, dynamic> pending, String action) async {
+    if (action == 'reject') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Dispute result?'),
+          content: const Text("It won't count until a host or clan admin who didn't play decides."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Dispute')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    setState(() => _resolvingId = pending['submissionId']?.toString());
+    try {
+      await ApiService.instance.post('/api/clans/matches/confirm', {
+        'submissionId': pending['submissionId'],
+        'action': action,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(action == 'confirm' ? 'Result confirmed' : 'Result disputed')));
+      }
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          e.statusCode == 409 ? 'This result was already resolved' : e.message)));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _resolvingId = null);
+    }
+  }
+
+  /// Confirm / Dispute for whoever can resolve it, otherwise who it's waiting on.
+  Widget _pendingActions(Map<String, dynamic> pending, {double fontSize = 12}) {
+    final disputed = pending['status'] == 'disputed';
+    if (pending['canConfirm'] != true) {
+      return Text(disputed ? 'Disputed' : 'Waiting for confirmation',
+        style: TextStyle(color: disputed ? kColorRose : kColorAmber, fontSize: fontSize - 1, fontWeight: FontWeight.w600));
+    }
+    if (_resolvingId == pending['submissionId']?.toString()) {
+      return const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (!disputed) ...[
+        GestureDetector(
+          onTap: () => _resolvePending(pending, 'reject'),
+          child: Text('Dispute', style: TextStyle(color: kColorRose, fontSize: fontSize, fontWeight: FontWeight.w700)),
+        ),
+        SizedBox(width: fontSize),
+      ],
+      GestureDetector(
+        onTap: () => _resolvePending(pending, 'confirm'),
+        child: Text('Confirm', style: TextStyle(color: kColorEmerald, fontSize: fontSize, fontWeight: FontWeight.w700)),
+      ),
+    ]);
   }
 
   void _showScoreSheet(Map<String, dynamic> match) {
@@ -801,6 +874,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final canEdit = widget.isAdmin && _isOngoing && !isLocked;
     final changes = parseRatingChanges(match['rating_changes']);
     final rated = _ratedPlayers(match, changes);
+    final pending = _pendingOf(match);
+    final pendingWinner = pending == null ? null : _teamById(pending['winnerTeamId'])?['team_name']?.toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -818,7 +893,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: done
                 ? [kColorEmerald, kColorEmerald.withOpacity(0.5)]
-                : [kColorPrimary, kColorPrimary.withOpacity(0.4)]),
+                : pending != null
+                    ? [kColorAmber, kColorAmber.withOpacity(0.4)]
+                    : [kColorPrimary, kColorPrimary.withOpacity(0.4)]),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
           ),
         ),
@@ -845,10 +922,22 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 child: RatingChangeRow(changes: changes, ids: rated.ids, names: rated.names),
               ),
             ],
+            if (pending != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${pending['submittedByName'] ?? 'Someone'} recorded ${pendingWinner ?? 'a result'} winning '
+                  '${_scoreDisplay(pending['score_details']?.toString())}. '
+                  'Waiting for confirmation from the other side or another admin.',
+                  style: const TextStyle(color: kColorAmber, fontSize: 11),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Text(
-                scoreStr.isNotEmpty ? scoreStr : 'Not played yet',
+                scoreStr.isNotEmpty ? scoreStr : pending != null ? 'Not counted yet' : 'Not played yet',
                 style: TextStyle(color: scoreStr.isNotEmpty ? kColorMuted : kColorMuted.withOpacity(0.5), fontSize: 11),
               )),
               // A recorded tournament result counts as confirmed
@@ -864,7 +953,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     size: 16,
                   ),
                 ),
-              if (isLocked)
+              if (pending != null)
+                _pendingActions(pending)
+              else if (isLocked)
                 Row(mainAxisSize: MainAxisSize.min, children: const [
                   Icon(Icons.lock_outline_rounded, size: 13, color: kColorMuted),
                   SizedBox(width: 3),
@@ -1369,6 +1460,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final changes  = parseRatingChanges(match['rating_changes']);
     final t1Change = done ? _teamRatingChange(team1, changes) : null;
     final t2Change = done ? _teamRatingChange(team2, changes) : null;
+    final pending  = _pendingOf(match);
+    final pendingScore = pending == null ? '' : _scoreDisplay(pending['score_details']?.toString());
 
     Widget delta(int? d) {
       if (d == null) return const SizedBox.shrink();
@@ -1438,7 +1531,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
             child: Padding(
               padding: const EdgeInsets.only(left: 8, right: 4),
               child: Row(children: [
-                Expanded(child: Text(
+                Expanded(child: pending != null
+                  ? Text(pendingScore.isNotEmpty ? pendingScore : 'Awaiting confirmation',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 9, color: kColorAmber))
+                  : Text(
                   scoreStr.isNotEmpty ? scoreStr : 'Not played',
                   maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 9,
@@ -1459,7 +1556,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                       size: 14,
                     ),
                   ),
-                if (isLocked)
+                if (pending != null)
+                  _pendingActions(pending, fontSize: 10)
+                else if (isLocked)
                   const Icon(Icons.lock_outline_rounded, size: 11, color: kColorMuted)
                 else if (canEdit)
                   GestureDetector(
@@ -1593,7 +1692,7 @@ class _ScoreSheetModalState extends State<_ScoreSheetModal> {
           : t2Wins > t1Wins
               ? widget.match['team2_id']
               : null;
-      await ApiService.instance.post('/api/clans/tournaments/update_match', {
+      final res = await ApiService.instance.post('/api/clans/tournaments/update_match', {
         'clanId':         widget.clanId,
         'tournamentId':   widget.tournamentId,
         'matchId':        widget.match['match_id'],
@@ -1602,7 +1701,13 @@ class _ScoreSheetModalState extends State<_ScoreSheetModal> {
         if (_t1Selected.isNotEmpty) 'team1_players': _t1Selected,
         if (_t2Selected.isNotEmpty) 'team2_players': _t2Selected,
       });
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        if (res['status'] == 'pending') {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(
+            'Saved. You played in this match, so it counts once the other side or another admin confirms it.')));
+        }
+        Navigator.pop(context);
+      }
       widget.onSaved();
     } catch (e) {
       if (mounted) {

@@ -1,6 +1,8 @@
 import type { Connection } from "mysql2/promise";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { applyResult, determineWinner, MatchFormat, parseGames, Side } from "@/lib/scoring";
+import { isClanAdmin } from "@/lib/authz";
+import { finalizeTournamentSubmission } from "@/lib/tournamentResults";
 
 /**
  * Clan match results go through MatchSubmissions:
@@ -16,6 +18,10 @@ import { applyResult, determineWinner, MatchFormat, parseGames, Side } from "@/l
  * Only finalizeSubmission() writes the InternalSinglesMatches /
  * InternalDoublesMatches row and touches ClanLeaderboard, so every existing
  * stats query over those tables only ever sees confirmed results.
+ *
+ * Tournament results use the same rows (tournament_match_id set): the "clan
+ * admins" are then the tournament host and clan admins, and confirming writes
+ * the bracket match (lib/tournamentResults.ts) instead of a clan match.
  */
 
 export interface Submission {
@@ -31,6 +37,8 @@ export interface Submission {
   winner: Side | null;
   status: "pending" | "confirmed" | "disputed";
   submitted_by: string;
+  /** Set for a tournament result: the TournamentMatches row it decides. */
+  tournament_match_id: number | null;
 }
 
 export interface MatchEntry {
@@ -80,15 +88,21 @@ export async function insertSubmission(
   clanId: unknown,
   e: MatchEntry,
   submittedBy: string,
-  opts: { seriesId?: number | null; entryMethod?: "player" | "admin" | "bulk" } = {}
+  opts: {
+    seriesId?: number | null;
+    entryMethod?: "player" | "admin" | "bulk";
+    /** A tournament result: the bracket match, and the winner the recorder picked. */
+    tournament?: { matchId: number; winner: Side };
+  } = {}
 ) {
   const [ins] = await db.execute<ResultSetHeader>(
     `INSERT INTO MatchSubmissions
      (clan_id, match_type, series_id, team1_player1, team1_player2, team2_player1, team2_player2,
-      score_details, winner, submitted_by, entry_method)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      score_details, winner, submitted_by, entry_method, tournament_match_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [clanId, e.matchType, opts.seriesId ?? null, e.team1[0], e.team1[1] ?? null, e.team2[0], e.team2[1] ?? null,
-     JSON.stringify(e.scoreDetails), determineWinner(e.scoreDetails.score), submittedBy, opts.entryMethod ?? "player"]
+     JSON.stringify(e.scoreDetails), opts.tournament?.winner ?? determineWinner(e.scoreDetails.score), submittedBy,
+     opts.entryMethod ?? "player", opts.tournament?.matchId ?? null]
   );
   return ins.insertId;
 }
@@ -124,6 +138,21 @@ export function canResolve(s: Submission, uid: string, isAdmin: boolean): boolea
   return s.status === "pending" && isOpponentOfSubmitter(s, uid);
 }
 
+/**
+ * Whether `uid` counts as an admin for this result: a clan admin, or for a
+ * tournament result the tournament host or a clan admin.
+ */
+export async function isResultAdmin(uid: string, s: Pick<Submission, "clan_id" | "tournament_match_id">, db: Pick<Connection, "execute">) {
+  if (await isClanAdmin(uid, s.clan_id)) return true;
+  if (!s.tournament_match_id) return false;
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT t.created_by FROM TournamentMatches tm JOIN Tournaments t ON t.tournament_id = tm.tournament_id
+     WHERE tm.match_id = ?`,
+    [s.tournament_match_id]
+  );
+  return !!rows[0]?.created_by && rows[0].created_by === uid;
+}
+
 /** A player on the other side from the submitter. If the submitter didn't play, any player. */
 export function isOpponentOfSubmitter(s: Submission, uid: string): boolean {
   const { team1, team2 } = teamsOf(s);
@@ -157,6 +186,12 @@ export async function finalizeSubmission(db: Connection, s: Submission, resolver
   if (upd.affectedRows === 0) throw new SubmissionConflict("This result has already been confirmed");
 
   const { team1, team2 } = teamsOf(s);
+  if (s.tournament_match_id) {
+    const res = await finalizeTournamentSubmission(db, { ...s, tournament_match_id: s.tournament_match_id }, team1, team2);
+    if (!res) throw new SubmissionConflict("This match already has a result");
+    return { source: "tournament" as const, matchId: s.tournament_match_id, winner: s.winner, ...res };
+  }
+
   const winner = determineWinner(s.score_details);
   let matchId: number;
 
@@ -197,5 +232,8 @@ export async function finalizeSubmission(db: Connection, s: Submission, resolver
     },
   });
 
-  return { matchId, winner, points, ratingChanges };
+  return {
+    source: s.match_type === "singles" ? "clan_singles" as const : "clan_doubles" as const,
+    matchId, winner, points, ratingChanges,
+  };
 }

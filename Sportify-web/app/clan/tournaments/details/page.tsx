@@ -36,11 +36,29 @@ interface TournamentMatch {
   team2_players: string | null;
   /** Rating change per player id for a rated match, e.g. { uid: 14 }. */
   rating_changes?: Record<string, number>;
+  /** A result recorded by someone who played in it, waiting for the other side or another admin. */
+  pending_result?: PendingResult | null;
   parsedScore?: {
     score: string;
     games: { team1: number, team2: number }[];
   };
 }
+
+interface PendingResult {
+  submissionId: number;
+  status: "pending" | "disputed";
+  winnerTeamId: number | null;
+  score_details: string;
+  submittedByName: string;
+  canConfirm: boolean;
+}
+
+/** "21–15 · 21–18" from a stored score ({ score } JSON or plain text). */
+const pendingScore = (raw: string) => {
+  let score = raw;
+  try { const p = JSON.parse(raw); if (p && typeof p.score === "string") score = p.score; } catch { /* plain score */ }
+  return score.split(",").map(g => g.trim().replace("-", "–")).filter(Boolean).join(" · ");
+};
 
 interface TournamentGroup {
   group_id: number;
@@ -86,6 +104,7 @@ function TournamentDetailsContent() {
   const [generatingKnockout, setGeneratingKnockout] = useState(false);
   const [advancingToKnockout, setAdvancingToKnockout] = useState(false);
   const [advancingCount, setAdvancingCount] = useState(2);
+  const [resolvingId, setResolvingId] = useState<number | null>(null);
 
   // knockoutStarted = any format that has generated knockout-phase matches
   const knockoutStarted = matches.some(m => m.phase === "knockout");
@@ -308,18 +327,64 @@ function TournamentDetailsContent() {
           setTournament(refreshData.tournament);
           
           closeUpdateScore();
-          alert("Match score updated successfully!");
+          alert(data.status === "pending"
+            ? "Saved. You played in this match, so it counts once a player on the other side or another admin confirms it."
+            : "Match score updated successfully!");
         }
       } else {
         throw new Error(data.error || "Failed to update match");
       }
     } catch (error) {
       console.error("Error updating match:", error);
-      alert("Failed to update match. Please try again.");
+      alert(error instanceof Error && error.message ? error.message : "Failed to update match. Please try again.");
     } finally {
       setUpdatingScore(false);
     }
   };
+
+  // Confirm or dispute a result that's waiting on the other side
+  const resolvePending = async (pending: PendingResult, action: "confirm" | "reject") => {
+    if (action === "reject" && !confirm("Dispute this result? A host or clan admin who didn't play will decide.")) return;
+    try {
+      setResolvingId(pending.submissionId);
+      const res = await fetchWithAuth("/api/clans/matches/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submissionId: pending.submissionId, action }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Failed");
+      const refresh = await (await fetchWithAuth(`/api/clans/tournaments/get_tournament_details?clanId=${clanId}&tournamentId=${tournamentId}`)).json();
+      if (refresh.success) {
+        setMatches(refresh.matches.map((m: TournamentMatch) => {
+          let parsedScore = undefined;
+          try { parsedScore = JSON.parse(m.score_details); } catch { /* not played */ }
+          return { ...m, parsedScore };
+        }));
+        setTournament(refresh.tournament);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to update the result");
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  // Confirm / Dispute buttons, or who it's waiting on
+  const PendingActions = ({ pending }: { pending: PendingResult }) => pending.canConfirm ? (
+    <span className="flex items-center gap-2 flex-shrink-0 ml-2">
+      {pending.status === "pending" && (
+        <button disabled={resolvingId === pending.submissionId} onClick={() => resolvePending(pending, "reject")}
+          className="text-xs font-semibold text-rose-500 hover:text-rose-400 disabled:opacity-50">Dispute</button>
+      )}
+      <button disabled={resolvingId === pending.submissionId} onClick={() => resolvePending(pending, "confirm")}
+        className="flex items-center gap-1 text-xs font-semibold text-emerald-500 hover:text-emerald-400 disabled:opacity-50">
+        {resolvingId === pending.submissionId ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}Confirm
+      </button>
+    </span>
+  ) : (
+    <span className="text-[10px] text-amber-500 flex-shrink-0 ml-2">{pending.status === "disputed" ? "Disputed" : "Waiting for confirmation"}</span>
+  );
 
   // Parse score string (e.g. "21-19, 15-21, 21-18") into an array of game results
   const parseScore = (scoreStr: string) => {
@@ -370,7 +435,7 @@ function TournamentDetailsContent() {
       }
     } catch (error) {
       console.error("Error completing tournament:", error);
-      alert("Failed to complete tournament. Please try again.");
+      alert(error instanceof Error && error.message !== "Failed" ? error.message : "Failed to complete tournament. Please try again.");
     } finally {
       setCompletingTournament(false);
     }
@@ -401,7 +466,7 @@ function TournamentDetailsContent() {
       setActiveTab("brackets");
     } catch (err) {
       console.error("Error generating knockout:", err);
-      alert("Failed to generate knockout bracket. Please try again.");
+      alert(err instanceof Error && err.message !== "Failed" ? err.message : "Failed to generate knockout bracket. Please try again.");
     } finally {
       setGeneratingKnockout(false);
     }
@@ -460,7 +525,7 @@ function TournamentDetailsContent() {
       setActiveTab("brackets");
     } catch (err) {
       console.error("Error advancing to knockout:", err);
-      alert("Failed to advance to knockout. Please try again.");
+      alert(err instanceof Error && err.message !== "Failed" ? err.message : "Failed to advance to knockout. Please try again.");
     } finally {
       setAdvancingToKnockout(false);
     }
@@ -609,8 +674,9 @@ function TournamentDetailsContent() {
     const t1Win = match.winner_team_id === match.team1_id;
     const t2Win = match.winner_team_id === match.team2_id;
     const done = !!match.winner_team_id;
+    const pending = match.pending_result;
     const scoreDisplay = match.parsedScore?.games?.map(g => `${g.team1}–${g.team2}`).join("  ·  ");
-    const accentGrad = done ? "from-emerald-500 to-teal-600" : "from-blue-500 to-teal-600";
+    const accentGrad = done ? "from-emerald-500 to-teal-600" : pending ? "from-amber-500 to-orange-500" : "from-blue-500 to-teal-600";
     const changes = match.rating_changes ?? {};
     const lineup = (raw: string | null, team?: TournamentTeam) => {
       let ids: string[] = [];
@@ -629,7 +695,7 @@ function TournamentDetailsContent() {
           <div className="flex items-start justify-between gap-2 mb-3">
             <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{match.match_stage}</span>
             <span className={`badge ${done ? "badge-completed" : "badge-ongoing"}`}>
-              {done ? "Done" : "Pending"}
+              {done ? "Done" : pending ? (pending.status === "disputed" ? "Disputed" : "Awaiting confirmation") : "Pending"}
             </span>
           </div>
           <div className="space-y-1.5">
@@ -663,15 +729,21 @@ function TournamentDetailsContent() {
               ))}
             </div>
           )}
+          {pending && (
+            <p className="mt-2.5 px-1 text-xs text-amber-600 dark:text-amber-400">
+              {pending.submittedByName} recorded {getTeamById(pending.winnerTeamId ?? 0)?.team_name ?? "a result"} winning {pendingScore(pending.score_details)}.
+              {" "}Waiting for confirmation from the other side or another admin.
+            </p>
+          )}
           {/* Score + action row */}
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
-            <span className="text-xs text-slate-400 truncate">{scoreDisplay || "Not played yet"}</span>
+            <span className="text-xs text-slate-400 truncate">{scoreDisplay || (pending ? "Not counted yet" : "Not played yet")}</span>
             {done && (
               <span className="ml-auto flex-shrink-0">
                 <ShareCardButton payload={{ kind: "match", source: "tournament", matchId: match.match_id }} />
               </span>
             )}
-            {tournament.status !== "completed" && (
+            {pending ? <PendingActions pending={pending} /> : tournament.status !== "completed" && (
               lockedMatchIds.has(match.match_id) ? (
                 <span className="flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0 ml-2">
                   <Lock className="w-3 h-3" /> Locked
@@ -957,10 +1029,11 @@ function TournamentDetailsContent() {
                                   </div>
                                   {/* Score bar */}
                                   <div className="border-t border-slate-100 dark:border-white/8 bg-slate-50 dark:bg-white/3 flex items-center h-8 px-3">
-                                    <span className={`text-xs truncate flex-1 ${scoreDisplay ? "text-slate-500 dark:text-slate-400 font-medium" : "text-slate-400 dark:text-slate-600 italic"}`}>
-                                      {scoreDisplay ?? "Not played yet"}
+                                    <span className={`text-xs truncate flex-1 ${scoreDisplay ? "text-slate-500 dark:text-slate-400 font-medium" : match.pending_result ? "text-amber-600 dark:text-amber-400" : "text-slate-400 dark:text-slate-600 italic"}`}
+                                      title={match.pending_result ? `${match.pending_result.submittedByName} recorded ${pendingScore(match.pending_result.score_details)}` : undefined}>
+                                      {scoreDisplay ?? (match.pending_result ? pendingScore(match.pending_result.score_details) : "Not played yet")}
                                     </span>
-                                    {tournament.status !== "completed" && (
+                                    {match.pending_result ? <PendingActions pending={match.pending_result} /> : tournament.status !== "completed" && (
                                       lockedMatchIds.has(match.match_id) ? (
                                         <span className="ml-2 flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0">
                                           <Lock className="w-2.5 h-2.5" /> Locked

@@ -7,7 +7,8 @@ pending) → a student confirms it → student dashboard (rating, weekly streak,
 season) → batch season standings → notification settings → WAC on
 `/admin/metrics`.
 
-It runs against a local stack, never production:
+It runs against a local stack, never production. The server only trusts
+emulator tokens with `SPORTIFY_E2E=1` set and never on Netlify (`lib/firebaseAdmin.ts`):
 
 ```bash
 # 1. Firebase Auth emulator (Java needed), from any empty directory
@@ -25,7 +26,7 @@ mysql -h127.0.0.1 -uroot -ptest sportify_e2e -e "INSERT INTO Users (user_id, nam
 
 # 4. The web app on :3210, pointed at both
 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=test MYSQL_DATABASE=sportify_e2e MYSQL_SSL=false \
-FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+SPORTIFY_E2E=1 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
 NEXT_PUBLIC_FIREBASE_API_KEY=demo-key NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-sportify \
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=demo-sportify.firebaseapp.com NEXT_PUBLIC_FIREBASE_APP_ID=1:1:web:1 \
 PLATFORM_ADMIN_UIDS=ops-founder npx next dev -p 3210

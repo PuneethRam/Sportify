@@ -26,6 +26,12 @@ export async function DELETE(req: Request) {
     // Child records first (FK ordering)
     await executeQuery(`DELETE FROM TournamentGroupTeams WHERE group_id IN (SELECT group_id FROM TournamentGroups WHERE tournament_id = ?)`, [tournamentId]);
     await executeQuery(`DELETE FROM TournamentGroups WHERE tournament_id = ?`, [tournamentId]);
+    // Results still waiting for confirmation go with their matches
+    await executeQuery(
+      `DELETE FROM MatchSubmissions WHERE status <> 'confirmed'
+         AND tournament_match_id IN (SELECT match_id FROM TournamentMatches WHERE tournament_id = ?)`,
+      [tournamentId]
+    );
     await executeQuery(`DELETE FROM TournamentMatches WHERE tournament_id = ?`, [tournamentId]);
     await executeQuery(`DELETE FROM TournamentTeams WHERE tournament_id = ?`, [tournamentId]);
 

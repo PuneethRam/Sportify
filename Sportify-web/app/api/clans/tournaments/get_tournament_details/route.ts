@@ -3,6 +3,8 @@ import { executeQuery } from "@/lib/db";
 import { RowDataPacket } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { loadRatingChanges } from "@/lib/ratings";
+import { getManagedTournament } from "@/lib/authz";
+import { canResolve, Submission } from "@/lib/matchSubmissions";
 
 export async function GET(req: Request) {
   try {
@@ -110,6 +112,32 @@ export async function GET(req: Request) {
     // Glicko-2 rating change per player for each rated match
     const changes = await loadRatingChanges("tournament", matches.map(m => Number(m.match_id)));
     matches.forEach(m => { m.rating_changes = changes.get(Number(m.match_id)) ?? {}; });
+
+    // Results waiting for confirmation (the recorder played in the match).
+    // They don't count yet: winner_team_id stays null until confirmed.
+    const open = matches.length ? await executeQuery(
+      `SELECT ms.*, u.name AS submitted_by_name FROM MatchSubmissions ms
+       LEFT JOIN Users u ON u.user_id = ms.submitted_by
+       WHERE ms.status IN ('pending', 'disputed')
+         AND ms.tournament_match_id IN (${matches.map(() => "?").join(",")})`,
+      matches.map(m => m.match_id)
+    ) as (Submission & RowDataPacket)[] : [];
+    const manager = open.length > 0 && !!(await getManagedTournament(uid, tournamentId));
+    const byMatch = new Map(open.map(s => [Number(s.tournament_match_id), s]));
+    matches.forEach(m => {
+      const s = byMatch.get(Number(m.match_id));
+      m.pending_result = s ? {
+        submissionId:    s.submission_id,
+        status:          s.status,
+        winnerTeamId:    s.winner === "team1" ? m.team1_id : s.winner === "team2" ? m.team2_id : null,
+        score_details:   s.score_details,
+        team1_players:   [s.team1_player1, s.team1_player2].filter(Boolean),
+        team2_players:   [s.team2_player1, s.team2_player2].filter(Boolean),
+        submittedBy:     s.submitted_by,
+        submittedByName: s.submitted_by_name ?? "Unknown",
+        canConfirm:      canResolve(s, uid, manager),
+      } : null;
+    });
 
     // Groups (only relevant for group_knockout)
     const groups = await executeQuery(

@@ -10,6 +10,7 @@ import { parseGames } from "@/lib/scoring";
 // Unconfirmed results in a clan. Members see the ones they play in (with
 // canConfirm set when they're on the other side from the submitter); clan
 // admins see all of them and can confirm any they didn't play in.
+// Tournament results are confirmed on the bracket instead (get_tournament_details).
 export async function GET(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
 
     const rows = await executeQuery(
       `SELECT * FROM MatchSubmissions
-       WHERE clan_id = ? AND status IN ('pending', 'disputed')
+       WHERE clan_id = ? AND status IN ('pending', 'disputed') AND tournament_match_id IS NULL
          ${admin ? "" : "AND ? IN (team1_player1, team1_player2, team2_player1, team2_player2)"}
        ORDER BY submitted_at DESC`,
       admin ? [clanId] : [clanId, uid]

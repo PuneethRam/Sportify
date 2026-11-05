@@ -48,6 +48,12 @@ side taps **Confirm** (or another coach of the batch, or the academy owner,
 does). Nobody can confirm
 their own result. This keeps everyone's ratings fair.
 
+The same goes for tournaments. If you play in your own academy tournament, a
+result you record shows **Waiting for confirmation** on the bracket until a
+player on the other side (or another coach or admin who didn't play) taps
+**Confirm**. Until then the winner doesn't move to the next round, and you can't
+start the knockout stage or complete the tournament.
+
 Students get a notification when a result is recorded.
 
 ## 4. What your students see
