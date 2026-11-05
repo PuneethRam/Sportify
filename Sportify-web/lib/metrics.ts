@@ -9,8 +9,9 @@ import { executeQuery } from "@/lib/db";
  * one confirmed ranked match in the week. A "confirmed ranked match" is
  *   - a row in InternalSinglesMatches / InternalDoublesMatches (since SPO-3
  *     these only ever hold confirmed results), dated when it was confirmed;
- *   - a TournamentMatches row with a winner, dated when the result was
- *     recorded (recorded_at; older rows fall back to match_date).
+ *   - a TournamentMatches row with a confirmed winner (result_status, see
+ *     lib/tournamentResults.ts), dated when the result was recorded or
+ *     confirmed (recorded_at; older rows fall back to match_date).
  *
  * Weeks are ISO weeks (Monday to Sunday) in METRICS_TZ_OFFSET_MINUTES,
  * default +330 (India, no DST).
@@ -172,7 +173,7 @@ export async function loadActivity(since: Date, uid?: string): Promise<Activity[
      FROM TournamentMatches tm
      LEFT JOIN TournamentTeams t1 ON t1.team_id = tm.team1_id
      LEFT JOIN TournamentTeams t2 ON t2.team_id = tm.team2_id
-     WHERE tm.winner_team_id IS NOT NULL AND COALESCE(tm.recorded_at, tm.match_date) >= ?${like
+     WHERE tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed' AND COALESCE(tm.recorded_at, tm.match_date) >= ?${like
        ? " AND (tm.team1_players LIKE ? OR tm.team2_players LIKE ? OR t1.players LIKE ? OR t2.players LIKE ?)" : ""}`,
     like ? [since, like, like, like, like] : [since]
   ) as RowDataPacket[];

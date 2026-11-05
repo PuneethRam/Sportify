@@ -258,7 +258,7 @@ export async function closePendingSeasons(now = new Date(), clanIds?: number[]) 
          SELECT clan_id FROM InternalSinglesMatches WHERE match_date >= ? AND match_date < ?
          UNION SELECT clan_id FROM InternalDoublesMatches WHERE match_date >= ? AND match_date < ?
          UNION SELECT t.clan_id FROM TournamentMatches tm JOIN Tournaments t ON t.tournament_id = tm.tournament_id
-               WHERE tm.winner_team_id IS NOT NULL
+               WHERE tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
                  AND COALESCE(tm.recorded_at, tm.match_date) >= ? AND COALESCE(tm.recorded_at, tm.match_date) < ?
        ) a
        WHERE a.clan_id IS NOT NULL${only}

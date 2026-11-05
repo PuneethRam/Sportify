@@ -3,9 +3,13 @@ import { createConnection } from "@/lib/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { forbidden, getManagedTournament } from "@/lib/authz";
-import { applyResult } from "@/lib/scoring";
-import { fromTournamentRow, TOURNAMENT_SELECT } from "@/lib/ratings";
+import { parsePlayers } from "@/lib/metrics";
+import { playsIn } from "@/lib/matchSubmissions";
 import { notifyOvertakes } from "@/lib/seasons";
+import {
+  applyTournamentResult, correctionBlock, isBracketMatch, loadTournamentMatches, loadTournamentResult,
+  notifyTournamentResultPending, ResultStatus, sidesOf,
+} from "@/lib/tournamentResults";
 
 function getStageName(matchCount: number, roundNumber: number, position: number): string {
   if (matchCount === 1) return "Final";
@@ -17,6 +21,10 @@ function getStageName(matchCount: number, roundNumber: number, position: number)
 const roundChanges = (a: { ratingChanges: Record<string, number> } | null) =>
   Object.fromEntries(Object.entries(a?.ratingChanges ?? {}).map(([u, d]) => [u, Math.round(d)]));
 
+// POST /api/clans/tournaments/update_match
+// Records a result, or corrects a pending / disputed one. The winner advances
+// straight away; the result counts (ratings, points) only once confirmed. See
+// lib/tournamentResults.ts for who confirms what.
 export async function POST(req: Request) {
   const uid = await getUserFromRequest(req);
   if (!uid) return unauthorized();
@@ -36,89 +44,90 @@ export async function POST(req: Request) {
   try {
     await connection.beginTransaction();
 
-    const [existing] = await connection.execute<RowDataPacket[]>(
-      `SELECT team1_id, team2_id, winner_team_id FROM TournamentMatches WHERE match_id = ? AND tournament_id = ? FOR UPDATE`,
-      [matchId, tournamentId]
-    );
-    if (!existing.length) {
+    const existing = await loadTournamentResult(connection, tournamentId, matchId, true);
+    if (!existing) {
       await connection.rollback();
       return NextResponse.json({ success: false, error: "Match not found" }, { status: 404 });
     }
-    // A recorded result has already moved the leaderboard and the bracket;
-    // recording it again would count it twice.
-    if (existing[0].winner_team_id !== null) {
-      await connection.rollback();
-      return NextResponse.json({ success: false, error: "This match already has a result" }, { status: 409 });
+    // A confirmed result has already moved the leaderboard and ratings; a
+    // pending or disputed one can be corrected until later rounds depend on it.
+    const previousWinner = existing.winner_team_id;
+    const correcting = previousWinner !== null;
+    if (correcting) {
+      if (!winner_team_id) {
+        await connection.rollback();
+        return NextResponse.json({ success: false, error: "A corrected result needs a winner" }, { status: 400 });
+      }
+      const blocked = correctionBlock(existing, await loadTournamentMatches(connection, tournamentId));
+      if (blocked) {
+        await connection.rollback();
+        return NextResponse.json({ success: false, error: blocked }, { status: 409 });
+      }
     }
-    const team1Id = existing[0].team1_id;
-    if (winner_team_id && winner_team_id !== team1Id && winner_team_id !== existing[0].team2_id) {
+    if (winner_team_id && winner_team_id !== existing.team1_id && winner_team_id !== existing.team2_id) {
       await connection.rollback();
       return NextResponse.json({ success: false, error: "Winner must be one of the two teams" }, { status: 400 });
+    }
+    // The line-up has to come from the team, or "who played" means nothing
+    for (const [picked, roster] of [[team1_players, existing.roster1], [team2_players, existing.roster2]]) {
+      const squad = parsePlayers(roster);
+      if (Array.isArray(picked) && squad.length && parsePlayers(picked).some(p => !squad.includes(p))) {
+        await connection.rollback();
+        return NextResponse.json({ success: false, error: "Selected players must be on their team" }, { status: 400 });
+      }
     }
 
     // Serialize player selections if provided
     const t1Players = Array.isArray(team1_players) ? JSON.stringify(team1_players) : null;
     const t2Players = Array.isArray(team2_players) ? JSON.stringify(team2_players) : null;
 
-    // Update match score, winner, and player selections
+    // Nobody confirms their own result: if the person entering it played
+    // (either team, partner's entry included), the other side has to confirm.
+    const after = { ...existing, team1_players: t1Players ?? existing.team1_players, team2_players: t2Players ?? existing.team2_players };
+    const status: ResultStatus = winner_team_id && playsIn(sidesOf(after), uid) ? "pending" : "confirmed";
+
     await connection.execute(
       `UPDATE TournamentMatches
        SET winner_team_id = ?, score_details = ?, recorded_at = NOW(),
            team1_players = COALESCE(?, team1_players),
-           team2_players = COALESCE(?, team2_players)
+           team2_players = COALESCE(?, team2_players),
+           result_status = ?, recorded_by = ?, resolved_by = NULL, resolved_at = NULL
        WHERE match_id = ? AND tournament_id = ?`,
-      [winner_team_id ?? null, score_details ?? null, t1Players, t2Players, matchId, tournamentId]
+      [winner_team_id ?? null, score_details ?? null, t1Players, t2Players, status, uid, matchId, tournamentId]
     );
 
     const format: string = tournament.format ?? "";
     const clanId: number = tournament.clan_id;
+    const { round_number } = existing;
 
-    // ── Leaderboard + rating update, from the players stored on the match ──
-    // (the same rule lib/ratings.ts uses when it replays history)
-    let applied: Awaited<ReturnType<typeof applyResult>> | null = null;
-    if (winner_team_id) {
-      const [[row]] = await connection.execute<RowDataPacket[]>(
-        `${TOURNAMENT_SELECT} AND tm.match_id = ?`,
-        [matchId]
-      );
-      const rated = fromTournamentRow(row);
-      if (rated.team1.length && rated.team2.length) {
-        applied = await applyResult(connection, {
-          clanId,
-          format: rated.format,
-          team1: rated.team1,
-          team2: rated.team2,
-          score: score_details ?? "",
-          winner: rated.winner,
-          match: { source: "tournament", matchId: rated.matchId, playedAt: rated.playedAt },
-        });
-      }
-    }
+    // ── Leaderboard + rating update, only for a confirmed result ──
+    const applied = winner_team_id && status === "confirmed"
+      ? await applyTournamentResult(connection, clanId, Number(matchId))
+      : null;
 
-    // Advance bracket for knockout and group_knockout knockout phase
-    if (winner_team_id && (format === "knockout" || format === "group_knockout" || format === "round_robin")) {
-      const [matchRows] = await connection.execute<RowDataPacket[]>(
-        `SELECT round_number, phase FROM TournamentMatches WHERE match_id = ?`,
-        [matchId]
-      );
-
-      if (matchRows.length > 0) {
-        const { round_number, phase } = matchRows[0];
-
-        // For group_knockout and round_robin, only advance bracket in the knockout phase
-        if ((format === "group_knockout" || format === "round_robin") && phase !== "knockout") {
-          await connection.commit();
-          if (applied) await notifyOvertakes(clanId, [{ source: "tournament", matchId: Number(matchId) }]);
-          return NextResponse.json({ success: true, ratingChanges: roundChanges(applied) });
-        }
-
+    // ── Bracket: the winner advances whether or not the result is confirmed ──
+    if (isBracketMatch({ format, phase: existing.phase })) {
+      if (correcting && winner_team_id && previousWinner !== winner_team_id) {
+        // The old winner was already drawn into the next round; swap in the new one
+        await connection.execute(
+          `UPDATE TournamentMatches
+           SET team1_id = IF(team1_id = ?, ?, team1_id), team2_id = IF(team2_id = ?, ?, team2_id)
+           WHERE tournament_id = ? AND round_number = ? AND phase = 'knockout' AND winner_team_id IS NULL
+             AND (team1_id = ? OR team2_id = ?)`,
+          [previousWinner, winner_team_id, previousWinner, winner_team_id, tournamentId, round_number + 1, previousWinner, previousWinner]
+        );
+      } else if (!correcting && winner_team_id) {
         const [pending] = await connection.execute<RowDataPacket[]>(
           `SELECT COUNT(*) AS cnt FROM TournamentMatches
            WHERE tournament_id = ? AND round_number = ? AND winner_team_id IS NULL`,
           [tournamentId, round_number]
         );
+        const [drawn] = await connection.execute<RowDataPacket[]>(
+          `SELECT COUNT(*) AS cnt FROM TournamentMatches WHERE tournament_id = ? AND round_number = ?`,
+          [tournamentId, round_number + 1]
+        );
 
-        if (pending[0].cnt === 0) {
+        if (pending[0].cnt === 0 && drawn[0].cnt === 0) {
           const [roundMatches] = await connection.execute<RowDataPacket[]>(
             `SELECT winner_team_id, match_position FROM TournamentMatches
              WHERE tournament_id = ? AND round_number = ?
@@ -150,7 +159,10 @@ export async function POST(req: Request) {
 
     await connection.commit();
     if (applied) await notifyOvertakes(clanId, [{ source: "tournament", matchId: Number(matchId) }]);
-    return NextResponse.json({ success: true, ratingChanges: roundChanges(applied) });
+    if (status === "pending") {
+      await notifyTournamentResultPending({ ...existing, ...after, recorded_by: uid });
+    }
+    return NextResponse.json({ success: true, status: winner_team_id ? status : null, ratingChanges: roundChanges(applied) });
   } catch (error) {
     await connection.rollback();
     console.error("Error updating tournament match:", error);

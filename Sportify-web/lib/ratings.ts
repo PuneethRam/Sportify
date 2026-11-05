@@ -220,7 +220,7 @@ export const TOURNAMENT_SELECT =
   `SELECT tm.match_id, t.clan_id, t.tournament_type, tm.team1_id, tm.team2_id, tm.winner_team_id,
           tm.team1_players, tm.team2_players, tm.score_details, COALESCE(tm.recorded_at, tm.match_date) AS played_at
    FROM TournamentMatches tm JOIN Tournaments t ON t.tournament_id = tm.tournament_id
-   WHERE tm.winner_team_id IS NOT NULL`;
+   WHERE tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'`;
 
 /** Every confirmed match, in any order (replay sorts). */
 export async function loadAllMatches(db: Db): Promise<RatedMatch[]> {

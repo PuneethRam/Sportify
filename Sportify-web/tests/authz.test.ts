@@ -11,6 +11,7 @@ import * as createTournament from "@/app/api/clans/tournaments/create_tournament
 import * as hostTournament from "@/app/api/clans/tournaments/host_tournament/route";
 import * as deleteTournament from "@/app/api/clans/tournaments/delete_tournament/route";
 import * as tournamentMatch from "@/app/api/clans/tournaments/update_match/route";
+import * as tournamentConfirm from "@/app/api/clans/tournaments/confirm_match/route";
 import * as completeTournament from "@/app/api/clans/tournaments/complete_tournament/route";
 import * as startHosted from "@/app/api/clans/tournaments/start_hosted/route";
 import * as register from "@/app/api/clans/tournaments/register/route";
@@ -96,6 +97,8 @@ describe("role checks", () => {
     await expectDenied(call(tournamentMatch.POST, { uid: member, body: result }));
     await expectDenied(call(tournamentMatch.POST, { uid: outsider, body: result }));
     await expectAllowed(call(tournamentMatch.POST, { uid: admin, body: result }));
+    // The admin played, so the result waits for the other side; once confirmed it can't be entered again
+    await expectAllowed(call(tournamentConfirm.POST, { uid: member, body: { tournamentId, matchId: match.match_id, action: "confirm" } }));
     expect((await call(tournamentMatch.POST, { uid: admin, body: result })).status).toBe(409);
 
     await expectDenied(call(completeTournament.POST, { uid: member, body: { clanId, tournamentId } }));

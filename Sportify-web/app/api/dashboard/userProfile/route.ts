@@ -169,7 +169,7 @@ export async function GET(req: Request) {
            FROM TournamentMatches tm
            JOIN Tournaments t ON tm.tournament_id = t.tournament_id
            WHERE (tm.team1_id IN (${ph}) OR tm.team2_id IN (${ph}))
-             AND tm.winner_team_id IS NOT NULL
+             AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
              AND t.tournament_type = 'singles'`,
           [...userTeamIds, ...userTeamIds, ...userTeamIds]
         ),
@@ -179,7 +179,7 @@ export async function GET(req: Request) {
            FROM TournamentMatches tm
            JOIN Tournaments t ON tm.tournament_id = t.tournament_id
            WHERE (tm.team1_id IN (${ph}) OR tm.team2_id IN (${ph}))
-             AND tm.winner_team_id IS NOT NULL
+             AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'
              AND t.tournament_type = 'doubles'`,
           [...userTeamIds, ...userTeamIds, ...userTeamIds]
         ),

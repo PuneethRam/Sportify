@@ -39,7 +39,7 @@ async function matchClan(source: MatchSource, matchId: number): Promise<number |
     : source === "clan_doubles"
     ? `SELECT clan_id FROM InternalDoublesMatches WHERE match_id = ?`
     : `SELECT t.clan_id FROM TournamentMatches tm JOIN Tournaments t ON t.tournament_id = tm.tournament_id
-       WHERE tm.match_id = ? AND tm.winner_team_id IS NOT NULL`;
+       WHERE tm.match_id = ? AND tm.winner_team_id IS NOT NULL AND tm.result_status = 'confirmed'`;
   const [row] = await executeQuery(sql, [matchId]) as RowDataPacket[];
   return row ? Number(row.clan_id) : null;
 }
