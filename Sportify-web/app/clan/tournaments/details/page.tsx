@@ -36,6 +36,12 @@ interface TournamentMatch {
   team2_players: string | null;
   /** Rating change per player id for a rated match, e.g. { uid: 14 }. */
   rating_changes?: Record<string, number>;
+  /** A result counts (ratings, points) only once confirmed; the bracket advances either way. */
+  result_status?: "pending" | "confirmed" | "disputed";
+  /** The signed-in user can confirm or dispute this result. */
+  can_resolve?: boolean;
+  /** The signed-in user can correct this (pending or disputed) result. */
+  can_correct?: boolean;
   parsedScore?: {
     score: string;
     games: { team1: number, team2: number }[];
@@ -86,6 +92,8 @@ function TournamentDetailsContent() {
   const [generatingKnockout, setGeneratingKnockout] = useState(false);
   const [advancingToKnockout, setAdvancingToKnockout] = useState(false);
   const [advancingCount, setAdvancingCount] = useState(2);
+  const [canManage, setCanManage] = useState(false);
+  const [resolving, setResolving] = useState<number | null>(null);
 
   // knockoutStarted = any format that has generated knockout-phase matches
   const knockoutStarted = matches.some(m => m.phase === "knockout");
@@ -106,6 +114,7 @@ function TournamentDetailsContent() {
         
         if (data.success) {
           setTournament(data.tournament);
+          setCanManage(!!data.canManage);
           
           // Process teams - parse players JSON
           // Process teams - handle players data appropriately
@@ -308,16 +317,45 @@ function TournamentDetailsContent() {
           setTournament(refreshData.tournament);
           
           closeUpdateScore();
-          alert("Match score updated successfully!");
+          alert(data.status === "pending"
+            ? "Saved. You played in this match, so it counts once the other side (or another admin) confirms it. The winner has moved on in the bracket."
+            : "Match score updated successfully!");
         }
       } else {
         throw new Error(data.error || "Failed to update match");
       }
     } catch (error) {
       console.error("Error updating match:", error);
-      alert("Failed to update match. Please try again.");
+      alert(error instanceof Error && error.message ? error.message : "Failed to update match. Please try again.");
     } finally {
       setUpdatingScore(false);
+    }
+  };
+
+  // Confirm or dispute a pending result (the other side, or a host / admin who didn't play)
+  const resolveResult = async (match: TournamentMatch, action: "confirm" | "reject") => {
+    if (action === "reject" && !confirm("Dispute this result? The host can then correct the score.")) return;
+    try {
+      setResolving(match.match_id);
+      const res = await fetchWithAuth("/api/clans/tournaments/confirm_match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tournamentId, matchId: match.match_id, action }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Failed");
+      const refreshData = await (await fetchWithAuth(`/api/clans/tournaments/get_tournament_details?clanId=${clanId}&tournamentId=${tournamentId}`)).json();
+      if (refreshData.success) {
+        setMatches(refreshData.matches.map((m: TournamentMatch) => {
+          let parsedScore = undefined;
+          try { parsedScore = JSON.parse(m.score_details); } catch { /* no score yet */ }
+          return { ...m, parsedScore };
+        }));
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to update the result");
+    } finally {
+      setResolving(null);
     }
   };
 
@@ -567,40 +605,36 @@ function TournamentDetailsContent() {
     );
   }
 
-  // ── Locked matches: matches that must not be edited because they have already
-  //    affected the bracket (editing would collapse downstream results).
-  const lockedMatchIds = (() => {
-    const locked = new Set<number>();
+  // ── Result status + actions, shared by match cards and bracket cards ──
+  const awaiting = (m: TournamentMatch) => !!m.winner_team_id && (m.result_status === "pending" || m.result_status === "disputed");
+  const statusLabel = (m: TournamentMatch) => m.result_status === "disputed" ? "Disputed" : "Waiting for confirmation";
 
-    // Group+KO: lock ALL group-stage matches once the knockout phase has started.
-    // Editing group results would invalidate the standings that determined who advanced.
-    if (tournament.format === "group_knockout" && knockoutStarted) {
-      matches.filter(m => m.phase === "group").forEach(m => locked.add(m.match_id));
+  // Score an open match, or correct a pending / disputed one. Confirmed results
+  // and results later rounds depend on are locked (the server decides).
+  const ScoreAction = ({ match, compact }: { match: TournamentMatch; compact?: boolean }) => {
+    if (tournament.status === "completed" || !canManage) return null;
+    if (!match.winner_team_id || match.can_correct) {
+      return (
+        <button onClick={() => openUpdateScore(match)} className="flex items-center gap-1 text-xs font-semibold text-blue-500 hover:text-blue-400 transition-colors flex-shrink-0 ml-2">
+          {!compact && <Pencil className="w-3 h-3" />}{match.winner_team_id ? "Correct" : compact ? "Score ›" : "Score"}
+        </button>
+      );
     }
+    return (
+      <span className="flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0 ml-2">
+        <Lock className={compact ? "w-2.5 h-2.5" : "w-3 h-3"} /> Locked
+      </span>
+    );
+  };
 
-    // Any knockout format: lock a bracket match whose winner is already seeded
-    // into the next round (editing it would break the bracket progression).
-    const bracketMatches = tournament.format === "knockout"
-      ? matches
-      : matches.filter(m => m.phase === "knockout");
-    const roundMap = new Map<number, TournamentMatch[]>();
-    bracketMatches.forEach(m => {
-      if (!roundMap.has(m.round_number)) roundMap.set(m.round_number, []);
-      roundMap.get(m.round_number)!.push(m);
-    });
-    const sortedRoundNums = Array.from(roundMap.keys()).sort((a, b) => a - b);
-    for (let ri = 0; ri < sortedRoundNums.length - 1; ri++) {
-      const currentMatches = roundMap.get(sortedRoundNums[ri]) ?? [];
-      const nextMatches    = roundMap.get(sortedRoundNums[ri + 1]) ?? [];
-      const teamsInNext    = new Set(nextMatches.flatMap(m => [m.team1_id, m.team2_id]));
-      for (const m of currentMatches) {
-        if (m.winner_team_id && teamsInNext.has(m.winner_team_id)) {
-          locked.add(m.match_id);
-        }
-      }
-    }
-    return locked;
-  })();
+  const ResolveButtons = ({ match }: { match: TournamentMatch }) => match.can_resolve ? (
+    <span className="flex items-center gap-2 flex-shrink-0 ml-2">
+      <button disabled={resolving === match.match_id} onClick={() => resolveResult(match, "confirm")}
+        className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50">Confirm</button>
+      <button disabled={resolving === match.match_id} onClick={() => resolveResult(match, "reject")}
+        className="text-xs font-semibold text-rose-500 hover:underline disabled:opacity-50">Dispute</button>
+    </span>
+  ) : null;
 
   // ── Shared match card used in Matches tab and Groups tab ──
   const MatchCard = ({ match }: { match: TournamentMatch }) => {
@@ -628,8 +662,8 @@ function TournamentDetailsContent() {
         <div className="p-4">
           <div className="flex items-start justify-between gap-2 mb-3">
             <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{match.match_stage}</span>
-            <span className={`badge ${done ? "badge-completed" : "badge-ongoing"}`}>
-              {done ? "Done" : "Pending"}
+            <span className={`badge ${awaiting(match) ? (match.result_status === "disputed" ? "badge-live" : "badge-upcoming") : done ? "badge-completed" : "badge-ongoing"}`}>
+              {awaiting(match) ? statusLabel(match) : done ? "Done" : "Not played"}
             </span>
           </div>
           <div className="space-y-1.5">
@@ -666,22 +700,13 @@ function TournamentDetailsContent() {
           {/* Score + action row */}
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
             <span className="text-xs text-slate-400 truncate">{scoreDisplay || "Not played yet"}</span>
-            {done && (
+            {done && !awaiting(match) && (
               <span className="ml-auto flex-shrink-0">
                 <ShareCardButton payload={{ kind: "match", source: "tournament", matchId: match.match_id }} />
               </span>
             )}
-            {tournament.status !== "completed" && (
-              lockedMatchIds.has(match.match_id) ? (
-                <span className="flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0 ml-2">
-                  <Lock className="w-3 h-3" /> Locked
-                </span>
-              ) : (
-                <button onClick={() => openUpdateScore(match)} className="flex items-center gap-1 text-xs font-semibold text-blue-500 hover:text-blue-400 transition-colors flex-shrink-0 ml-2">
-                  <Pencil className="w-3 h-3" />{match.winner_team_id ? "Edit" : "Score"}
-                </button>
-              )
-            )}
+            <ResolveButtons match={match} />
+            <ScoreAction match={match} />
           </div>
         </div>
       </div>
@@ -896,7 +921,7 @@ function TournamentDetailsContent() {
             // not just how many rounds have been created yet.
             const expectedTotalRounds = Math.ceil(Math.log2(2 * round1Count));
             const CARD_H = 114;
-            const SLOT_H = 140;
+            const SLOT_H = 150; // room for the "Waiting for confirmation" strip
             const totalH = round1Count * SLOT_H;
 
             const getRoundLabel = (roundIdx: number) => {
@@ -955,22 +980,18 @@ function TournamentDetailsContent() {
                                     </span>
                                     {team2 && hasScore && <span className={`stat-num text-base ml-2 w-5 text-right flex-shrink-0 ${t2Win ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400"}`}>{t2Wins}</span>}
                                   </div>
+                                  {awaiting(match) && (
+                                    <div className={`border-t border-slate-100 dark:border-white/8 flex items-center h-6 px-3 text-[11px] font-semibold ${match.result_status === "disputed" ? "text-rose-500 bg-rose-50 dark:bg-rose-500/10" : "text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-400/10"}`}>
+                                      <span className="truncate flex-1">{statusLabel(match)}</span>
+                                    </div>
+                                  )}
                                   {/* Score bar */}
                                   <div className="border-t border-slate-100 dark:border-white/8 bg-slate-50 dark:bg-white/3 flex items-center h-8 px-3">
                                     <span className={`text-xs truncate flex-1 ${scoreDisplay ? "text-slate-500 dark:text-slate-400 font-medium" : "text-slate-400 dark:text-slate-600 italic"}`}>
                                       {scoreDisplay ?? "Not played yet"}
                                     </span>
-                                    {tournament.status !== "completed" && (
-                                      lockedMatchIds.has(match.match_id) ? (
-                                        <span className="ml-2 flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0">
-                                          <Lock className="w-2.5 h-2.5" /> Locked
-                                        </span>
-                                      ) : (
-                                        <button onClick={() => openUpdateScore(match)} className="ml-2 text-xs font-semibold text-blue-500 hover:text-blue-400 flex-shrink-0">
-                                          {match.winner_team_id ? "Edit" : "Score ›"}
-                                        </button>
-                                      )
-                                    )}
+                                    <ResolveButtons match={match} />
+                                    <ScoreAction match={match} compact />
                                   </div>
                                 </div>
                               );
